@@ -436,6 +436,7 @@
 
         snap.forEach((doc) => {
           const data = doc.data();
+          // Fix: Ensure the URL is properly encoded for the query string, but not double-encoded later
           const shareUrl = `${currentUrl}?book=${encodeURIComponent(data.pdfUrl)}&title=${encodeURIComponent(data.title)}`;
           
           grid.innerHTML += `
@@ -514,6 +515,8 @@
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
         if(loadText) loadText.textContent = 'Memuat turun PDF (bergantung pada saiz/internet)...';
         
+        // Fix: Do not decode the URL here, pass the raw data.pdfUrl directly to getDocument
+        // PDF.js needs the exact Firebase Storage URL with its tokens intact.
         const pdf = await pdfjsLib.getDocument(pdfUrl).promise;
         const totalPages = pdf.numPages;
         
