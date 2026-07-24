@@ -305,7 +305,17 @@
     
     const shareModal = document.getElementById('share-modal-overlay');
     const urlParams = new URLSearchParams(window.location.search);
-    const directBookUrl = urlParams.get('book');
+    
+    // Guna atob() untuk Base64 bagi mengelakkan URL dipecahkan oleh pelayar
+    let directBookUrl = urlParams.get('book'); // Sokongan pautan format lama
+    if (urlParams.get('b64')) {
+        try {
+            directBookUrl = atob(urlParams.get('b64'));
+        } catch(e) { 
+            console.error("Gagal menyahkod Base64 URL"); 
+        }
+    }
+    
     const directBookTitle = urlParams.get('title') || 'Buku Kongsi';
 
     if (loginBtn) {
@@ -436,8 +446,9 @@
 
         snap.forEach((doc) => {
           const data = doc.data();
-          // Fix: Ensure the URL is properly encoded for the query string, but not double-encoded later
-          const shareUrl = `${currentUrl}?book=${encodeURIComponent(data.pdfUrl)}&title=${encodeURIComponent(data.title)}`;
+          // Gunakan Base64 (btoa) untuk mengelakkan isu URL Double-Decode apabila dikongsi
+          const base64Url = btoa(data.pdfUrl);
+          const shareUrl = `${currentUrl}?b64=${base64Url}&title=${encodeURIComponent(data.title)}`;
           
           grid.innerHTML += `
             <div class="bg-white p-4 rounded-xl border border-gray-100 shadow-sm hover:shadow-md transition flex flex-col justify-between h-full">
