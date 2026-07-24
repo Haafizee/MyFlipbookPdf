@@ -763,20 +763,20 @@
       },
 
       share: function(title, directUrl, embedUrl) {
-        const esc = (s) => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+        const escText = (s) => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
         const html = `
           <div class="space-y-4">
-            <p class="text-xs font-semibold text-gray-500 truncate mb-2">${esc(title)}</p>
+            <p class="text-xs font-semibold text-gray-500 truncate mb-2">${escText(title)}</p>
             <div>
               <label class="block text-xs font-semibold text-gray-600 mb-1">Pautan Langsung</label>
               <div class="flex gap-2">
-                <input type="text" id="share-link-input" value="${esc(directUrl)}" readonly class="input-field flex-grow p-2.5 rounded-lg text-sm">
+                <input type="text" id="share-link-input" value="${escText(directUrl)}" readonly class="input-field flex-grow p-2.5 rounded-lg text-sm">
                 <button onclick="document.getElementById('share-link-input').select(); document.execCommand('copy');" class="btn-primary px-4 py-2 rounded-lg text-sm font-semibold">Salin</button>
               </div>
             </div>
             <div>
               <label class="block text-xs font-semibold text-gray-600 mb-1">Kod Benam (Embed)</label>
-              <textarea id="share-embed-text" readonly rows="2" class="input-field w-full p-2.5 rounded-lg text-xs font-mono resize-none">${esc(embedUrl)}</textarea>
+              <textarea id="share-embed-text" readonly rows="2" class="input-field w-full p-2.5 rounded-lg text-xs font-mono resize-none"></textarea>
             </div>
             <div class="pt-4 flex flex-col items-center">
               <label class="block text-xs font-semibold text-gray-600 mb-2">Kod QR</label>
@@ -784,7 +784,10 @@
             </div>
           </div>`;
         this.show("Kongsi Awam", html, "Tutup", "btn-ghost", () => {});
+        // Set embed text as plain text (not innerHTML) so it's not HTML-escaped and can be copied as raw code
         setTimeout(() => {
+          const embedTextarea = document.getElementById('share-embed-text');
+          if (embedTextarea) { embedTextarea.textContent = embedUrl; }
           const qrBox = document.getElementById('qrcode-box');
           if (qrBox) { qrBox.innerHTML = ''; new QRCode(qrBox, { text: directUrl, width: 128, height: 128, colorDark : "#4f46e5" }); }
         }, 100);
@@ -809,6 +812,10 @@
     });
     document.getElementById('logout-btn').addEventListener('click', () => signOut(auth));
 
+    // Check if this is a public share link — if so, bypass login UI and go straight to viewer
+    const _urlParams = new URLSearchParams(window.location.search);
+    const _isShareView = !!_urlParams.get('b64');
+
     onAuthStateChanged(auth, (user) => {
       currentUser = user;
       const booksGrid = document.getElementById('books-grid');
@@ -819,17 +826,34 @@
         document.getElementById('user-name').textContent = user.displayName;
         document.getElementById('upload-section').classList.remove('hidden');
         document.getElementById('btn-create-folder').classList.remove('hidden');
-        const urlParams = new URLSearchParams(window.location.search);
-        if (!urlParams.get('b64')) loadDashboard();
+        if (!_isShareView) loadDashboard();
       } else {
-        document.getElementById('login-btn').classList.remove('hidden');
-        document.getElementById('user-info').classList.add('hidden');
-        document.getElementById('upload-section').classList.add('hidden');
-        document.getElementById('btn-create-folder').classList.add('hidden');
-        booksGrid.innerHTML = '<div class="col-span-full text-center py-16 empty-state"><div class="text-4xl mb-3 opacity-40">📂</div><p class="text-slate-500">Sila log masuk untuk menguruskan fail.</p></div>';
-        document.getElementById('stat-folders').textContent = '0';
-        document.getElementById('stat-files').textContent = '0';
-        document.getElementById('stat-total').textContent = '0';
+        if (_isShareView) {
+          // Public share link — hide dashboard, show viewer only, no login needed
+          document.getElementById('login-btn').classList.add('hidden');
+          document.getElementById('user-info').classList.add('hidden');
+          document.getElementById('upload-section').classList.add('hidden');
+          document.getElementById('btn-create-folder').classList.add('hidden');
+          booksGrid.innerHTML = '';
+          document.getElementById('stat-folders').textContent = '0';
+          document.getElementById('stat-files').textContent = '0';
+          document.getElementById('stat-total').textContent = '0';
+          // Wait a tick then open viewer (no login required)
+          setTimeout(() => {
+            try { window.openViewer(atob(_urlParams.get('b64')), _urlParams.get('title') || 'Buku Kongsi'); }
+            catch (e) { console.error("URL Rosak", e); }
+          }, 50);
+        } else {
+          // Normal unauthenticated — show login prompt
+          document.getElementById('login-btn').classList.remove('hidden');
+          document.getElementById('user-info').classList.add('hidden');
+          document.getElementById('upload-section').classList.add('hidden');
+          document.getElementById('btn-create-folder').classList.add('hidden');
+          booksGrid.innerHTML = '<div class="col-span-full text-center py-16 empty-state"><div class="text-4xl mb-3 opacity-40">📂</div><p class="text-slate-500">Sila log masuk untuk menguruskan fail.</p></div>';
+          document.getElementById('stat-folders').textContent = '0';
+          document.getElementById('stat-files').textContent = '0';
+          document.getElementById('stat-total').textContent = '0';
+        }
       }
     });
 
@@ -1182,12 +1206,7 @@
     const viewerSection = document.getElementById('viewer-section');
     const mainNav = document.getElementById('main-nav');
     const mainContent = document.getElementById('main-content');
-
     const urlParams = new URLSearchParams(window.location.search);
-    if (urlParams.get('b64')) {
-      try { window.openViewer(atob(urlParams.get('b64')), urlParams.get('title') || 'Buku Kongsi'); }
-      catch (e) { console.error("URL Rosak", e); }
-    }
 
     document.getElementById('close-viewer-btn').addEventListener('click', () => {
       viewerSection.classList.add('hidden');
