@@ -250,23 +250,27 @@
 
       <!-- Ruang Kanvas Buku Selak -->
       <div class="w-full px-4 md:px-20 h-full flex items-center justify-center relative">
-          <div id="flipbook" class="flipbook-container flex items-center justify-center">
-            
-            <!-- Petunjuk Loading -->
-            <div id="loading-indicator" class="absolute inset-0 flex flex-col items-center justify-center z-10">
-               <svg class="animate-spin h-10 w-10 text-indigo-600 mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                 <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                 <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-               </svg>
-               <span id="loading-text" class="text-gray-600 font-medium bg-white px-4 py-2 rounded-lg shadow-sm">Memuat turun PDF... Sila tunggu.</span>
-            </div>
-            
-            <!-- Anak Panah Kiri -->
-            <button id="prev-page" class="nav-arrow nav-arrow-left hidden">◀</button>
-            <!-- Anak Panah Kanan -->
-            <button id="next-page" class="nav-arrow nav-arrow-right hidden">▶</button>
-            
+          
+          <!-- Petunjuk Loading (Dialihkan ke luar flipbook) -->
+          <div id="loading-indicator" class="absolute inset-0 flex flex-col items-center justify-center z-[60] bg-gray-100 bg-opacity-75 hidden">
+             <svg class="animate-spin h-10 w-10 text-indigo-600 mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+               <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+               <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+             </svg>
+             <span id="loading-text" class="text-gray-800 font-medium bg-white px-4 py-2 rounded-lg shadow-sm border border-gray-200">Menyediakan pemapar...</span>
           </div>
+          
+          <!-- Anak Panah Kiri (Dialihkan ke luar flipbook) -->
+          <button id="prev-page" class="nav-arrow nav-arrow-left hidden">◀</button>
+          
+          <!-- Wrapper Khas untuk mereset flipbook -->
+          <div id="flipbook-wrapper" class="w-full h-full flex items-center justify-center">
+              <div id="flipbook" class="flipbook-container flex items-center justify-center"></div>
+          </div>
+
+          <!-- Anak Panah Kanan (Dialihkan ke luar flipbook) -->
+          <button id="next-page" class="nav-arrow nav-arrow-right hidden">▶</button>
+          
       </div>
   </section>
 
@@ -489,7 +493,6 @@
     });
 
     const viewerSection = document.getElementById('viewer-section');
-    const flipContainer = document.getElementById('flipbook');
     const prevBtn = document.getElementById('prev-page');
     const nextBtn = document.getElementById('next-page');
 
@@ -499,10 +502,16 @@
           if(mainNav) mainNav.classList.remove('hidden');
           if(mainContent) mainContent.classList.remove('hidden');
           
-          if (pageFlipInstance) { pageFlipInstance.destroy(); pageFlipInstance = null; }
-          if(flipContainer) {
-              flipContainer.innerHTML = ''; // Kosongkan sepenuhnya untuk reset enjin
+          if (pageFlipInstance) { 
+              pageFlipInstance.destroy(); 
+              pageFlipInstance = null; 
           }
+          // Reset struktur DOM secara total supaya tiada kerosakan untuk buku seterusnya
+          const wrapper = document.getElementById('flipbook-wrapper');
+          if(wrapper) {
+              wrapper.innerHTML = '<div id="flipbook" class="flipbook-container flex items-center justify-center"></div>';
+          }
+          
           if(prevBtn) prevBtn.classList.add('hidden'); 
           if(nextBtn) nextBtn.classList.add('hidden');
           if(document.getElementById('loading-indicator')) document.getElementById('loading-indicator').style.display = 'none';
@@ -512,6 +521,17 @@
     }
 
     async function openViewer(pdfUrl, title) {
+      // Kosongkan dan set semula DOM sekiranya openViewer dipanggil berterusan
+      if (pageFlipInstance) { 
+          pageFlipInstance.destroy(); 
+          pageFlipInstance = null; 
+      }
+      const wrapper = document.getElementById('flipbook-wrapper');
+      if(wrapper) {
+          wrapper.innerHTML = '<div id="flipbook" class="flipbook-container flex items-center justify-center"></div>';
+      }
+      const currentFlipContainer = document.getElementById('flipbook');
+
       if(mainNav) mainNav.classList.add('hidden');
       if(mainContent) mainContent.classList.add('hidden');
       if(viewerSection) viewerSection.classList.remove('hidden');
@@ -542,18 +562,17 @@
         if(baseW > 600) { baseW = 600; baseH = 600 * ratio; }
 
         const pagesData = [];
-        if(flipContainer) {
-            flipContainer.innerHTML = ''; // Pastikan kotak bersih sebelum buku baru dijana
+        if(currentFlipContainer) {
             for (let i = 1; i <= totalPages; i++) {
               const pDiv = document.createElement('div');
               pDiv.className = 'page';
               const canvas = document.createElement('canvas');
               pDiv.appendChild(canvas);
-              flipContainer.appendChild(pDiv); // Append terus ke dalam container 
+              currentFlipContainer.appendChild(pDiv); // Append terus ke dalam container 
               pagesData.push({ num: i, canvas: canvas });
             }
 
-            pageFlipInstance = new St.PageFlip(flipContainer, {
+            pageFlipInstance = new St.PageFlip(currentFlipContainer, {
               width: baseW, 
               height: baseH, 
               size: "stretch", 
@@ -565,7 +584,7 @@
               flippingTime: 600
             });
 
-            pageFlipInstance.loadFromHTML(document.querySelectorAll('.page'));
+            pageFlipInstance.loadFromHTML(currentFlipContainer.querySelectorAll('.page'));
 
             for (const item of pagesData) {
               const p = await pdf.getPage(item.num);
