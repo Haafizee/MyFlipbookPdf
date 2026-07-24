@@ -1036,7 +1036,6 @@
           item.type === 'folder' ? renderFolderCardList(item.data) : renderBookCardList(item.data)
         ).join('');
       }
-      attachShareHandlers();
     }
 
     function formatDate(ts) {
@@ -1063,11 +1062,16 @@
         </div>`;
     }
 
+    // ─── Share data map (avoids HTML attribute quoting issues) ───
+    const _shareData = new Map();
+
     function renderBookCardGrid(b) {
       const currentUrl = window.location.origin + window.location.pathname;
       const b64 = btoa(b.pdfUrl);
       const shareUrl = `${currentUrl}?b64=${b64}&title=${encodeURIComponent(b.title)}`;
       const embedUrl = `<iframe src="${shareUrl}" width="100%" height="600" frameborder="0" allowfullscreen></iframe>`;
+      // Store share data in JS map, keyed by book ID
+      _shareData.set(b.id, { title: b.title, shareUrl, embedUrl });
       const escapedTitle = b.title.replace(/'/g, "\\'");
       const escapedPdfUrl = b.pdfUrl.replace(/'/g, "\\'");
       const sp = (b.storagePath || '').replace(/'/g, "\\'");
@@ -1085,7 +1089,7 @@
           <div class="flex flex-col gap-2" style="border-top:1px solid var(--border);padding-top:10px;">
             <button class="btn-primary w-full py-2 rounded-lg text-xs font-semibold" onclick="openViewer('${escapedPdfUrl}', '${escapedTitle}')">▶ Buka</button>
             <div class="flex gap-1">
-              <button class="btn-ghost flex-1 py-1.5 rounded-lg text-xs font-medium share-btn" data-title="${b.title}" data-share-url="${shareUrl}" data-embed-url="${embedUrl}">Kongsi</button>
+              <button class="btn-ghost flex-1 py-1.5 rounded-lg text-xs font-medium" onclick="shareBookById('${b.id}')">🔗</button>
               <button class="btn-ghost flex-1 py-1.5 rounded-lg text-xs font-medium" onclick="renameBook('${b.id}', '${escapedTitle}')">Tukar Nama</button>
               <button class="btn-ghost flex-1 py-1.5 rounded-lg text-xs font-medium" onclick="moveBook('${b.id}')">Alih</button>
               <button class="btn-danger flex-1 py-1.5 rounded-lg text-xs font-medium" onclick="deleteBook('${b.id}', '${sp}')">✕</button>
@@ -1117,6 +1121,8 @@
       const b64 = btoa(b.pdfUrl);
       const shareUrl = `${currentUrl}?b64=${b64}&title=${encodeURIComponent(b.title)}`;
       const embedUrl = `<iframe src="${shareUrl}" width="100%" height="600" frameborder="0" allowfullscreen></iframe>`;
+      // Store share data in JS map
+      _shareData.set(b.id, { title: b.title, shareUrl, embedUrl });
       const escapedTitle = b.title.replace(/'/g, "\\'");
       const escapedPdfUrl = b.pdfUrl.replace(/'/g, "\\'");
       const sp = (b.storagePath || '').replace(/'/g, "\\'");
@@ -1131,7 +1137,7 @@
           <span class="badge badge-pdf hidden md:inline-flex">PDF</span>
           <div class="flex gap-1 ml-2">
             <button class="btn-primary px-3 py-1.5 rounded-lg text-xs font-semibold" onclick="openViewer('${escapedPdfUrl}', '${escapedTitle}')">▶</button>
-            <button class="btn-ghost px-2 py-1.5 rounded-lg text-xs font-medium share-btn" data-title="${b.title}" data-share-url="${shareUrl}" data-embed-url="${embedUrl}">Kongsi</button>
+            <button class="btn-ghost px-2 py-1.5 rounded-lg text-xs font-medium" onclick="shareBookById('${b.id}')">🔗</button>
             <button class="btn-ghost px-2 py-1.5 rounded-lg text-xs font-medium" onclick="renameBook('${b.id}', '${escapedTitle}')">Tukar Nama</button>
             <button class="btn-ghost px-2 py-1.5 rounded-lg text-xs font-medium" onclick="moveBook('${b.id}')">Alih</button>
             <button class="btn-danger px-2 py-1.5 rounded-lg text-xs font-medium" onclick="deleteBook('${b.id}', '${sp}')">✕</button>
@@ -1139,21 +1145,16 @@
         </div>`;
     }
 
-    // ─── Share helper (data-attribute driven) ───
+    // ─── Share helpers ───
     window.shareBook = (title, shareUrl, embedUrl) => {
       customModal.share(title, shareUrl, embedUrl);
     };
-    function attachShareHandlers() {
-      document.querySelectorAll('.share-btn').forEach(btn => {
-        btn.addEventListener('click', function(e) {
-          e.preventDefault();
-          const title = this.getAttribute('data-title');
-          const shareUrl = this.getAttribute('data-share-url');
-          const embedUrl = this.getAttribute('data-embed-url');
-          shareBook(title, shareUrl, embedUrl);
-        });
-      });
-    }
+    window.shareBookById = (bookId) => {
+      const data = _shareData.get(bookId);
+      if (data) {
+        shareBook(data.title, data.shareUrl, data.embedUrl);
+      }
+    };
 
     // ─── Folder Actions ───
     window.renameFolder = (id, oldName) => {
