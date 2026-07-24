@@ -587,7 +587,9 @@
     }
 
     window.addEventListener('DOMContentLoaded', () => {
-        if (directBookUrl) openViewer(decodeURIComponent(directBookUrl), decodeURIComponent(directBookTitle));
+        // PERBAIKAN: urlParams.get() sudah membuat proses decode secara automatik. 
+        // Melakukan decodeURIComponent sekali lagi akan merosakkan URL Firebase (menukar %20 kembali menjadi ruang kosong).
+        if (directBookUrl) openViewer(directBookUrl, directBookTitle);
     });
   </script>
 </body>
