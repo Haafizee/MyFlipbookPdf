@@ -501,12 +501,11 @@
           
           if (pageFlipInstance) { pageFlipInstance.destroy(); pageFlipInstance = null; }
           if(flipContainer) {
-              const oldPages = flipContainer.querySelectorAll('.page');
-              oldPages.forEach(p => p.remove());
+              flipContainer.innerHTML = ''; // Kosongkan sepenuhnya untuk reset enjin
           }
           if(prevBtn) prevBtn.classList.add('hidden'); 
           if(nextBtn) nextBtn.classList.add('hidden');
-          if(document.getElementById('loading-indicator')) document.getElementById('loading-indicator').style.display = 'flex';
+          if(document.getElementById('loading-indicator')) document.getElementById('loading-indicator').style.display = 'none';
           
           if(directBookUrl) window.location.href = window.location.pathname; 
         });
@@ -544,12 +543,13 @@
 
         const pagesData = [];
         if(flipContainer) {
+            flipContainer.innerHTML = ''; // Pastikan kotak bersih sebelum buku baru dijana
             for (let i = 1; i <= totalPages; i++) {
               const pDiv = document.createElement('div');
               pDiv.className = 'page';
               const canvas = document.createElement('canvas');
               pDiv.appendChild(canvas);
-              flipContainer.insertBefore(pDiv, prevBtn); 
+              flipContainer.appendChild(pDiv); // Append terus ke dalam container 
               pagesData.push({ num: i, canvas: canvas });
             }
 
