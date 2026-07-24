@@ -763,19 +763,20 @@
       },
 
       share: function(title, directUrl, embedUrl) {
+        const esc = (s) => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
         const html = `
           <div class="space-y-4">
-            <p class="text-xs font-semibold text-gray-500 truncate mb-2">${title}</p>
+            <p class="text-xs font-semibold text-gray-500 truncate mb-2">${esc(title)}</p>
             <div>
               <label class="block text-xs font-semibold text-gray-600 mb-1">Pautan Langsung</label>
               <div class="flex gap-2">
-                <input type="text" id="share-link-input" value="${directUrl}" readonly class="input-field flex-grow p-2.5 rounded-lg text-sm">
+                <input type="text" id="share-link-input" value="${esc(directUrl)}" readonly class="input-field flex-grow p-2.5 rounded-lg text-sm">
                 <button onclick="document.getElementById('share-link-input').select(); document.execCommand('copy');" class="btn-primary px-4 py-2 rounded-lg text-sm font-semibold">Salin</button>
               </div>
             </div>
             <div>
               <label class="block text-xs font-semibold text-gray-600 mb-1">Kod Benam (Embed)</label>
-              <textarea id="share-embed-text" readonly rows="2" class="input-field w-full p-2.5 rounded-lg text-xs font-mono resize-none">${embedUrl}</textarea>
+              <textarea id="share-embed-text" readonly rows="2" class="input-field w-full p-2.5 rounded-lg text-xs font-mono resize-none">${esc(embedUrl)}</textarea>
             </div>
             <div class="pt-4 flex flex-col items-center">
               <label class="block text-xs font-semibold text-gray-600 mb-2">Kod QR</label>
@@ -1011,6 +1012,7 @@
           item.type === 'folder' ? renderFolderCardList(item.data) : renderBookCardList(item.data)
         ).join('');
       }
+      attachShareHandlers();
     }
 
     function formatDate(ts) {
@@ -1044,8 +1046,6 @@
       const embedUrl = `<iframe src="${shareUrl}" width="100%" height="600" frameborder="0" allowfullscreen></iframe>`;
       const escapedTitle = b.title.replace(/'/g, "\\'");
       const escapedPdfUrl = b.pdfUrl.replace(/'/g, "\\'");
-      const escapedShareUrl = shareUrl.replace(/'/g, "\\'");
-      const escapedEmbedUrl = embedUrl.replace(/'/g, "\\'");
       const sp = (b.storagePath || '').replace(/'/g, "\\'");
 
       return `
@@ -1061,7 +1061,7 @@
           <div class="flex flex-col gap-2" style="border-top:1px solid var(--border);padding-top:10px;">
             <button class="btn-primary w-full py-2 rounded-lg text-xs font-semibold" onclick="openViewer('${escapedPdfUrl}', '${escapedTitle}')">▶ Buka</button>
             <div class="flex gap-1">
-              <button class="btn-ghost flex-1 py-1.5 rounded-lg text-xs font-medium" onclick="shareBook('${escapedTitle}', '${escapedShareUrl}', '${escapedEmbedUrl}')">Kongsi</button>
+              <button class="btn-ghost flex-1 py-1.5 rounded-lg text-xs font-medium share-btn" data-title="${b.title}" data-share-url="${shareUrl}" data-embed-url="${embedUrl}">Kongsi</button>
               <button class="btn-ghost flex-1 py-1.5 rounded-lg text-xs font-medium" onclick="renameBook('${b.id}', '${escapedTitle}')">Tukar Nama</button>
               <button class="btn-ghost flex-1 py-1.5 rounded-lg text-xs font-medium" onclick="moveBook('${b.id}')">Alih</button>
               <button class="btn-danger flex-1 py-1.5 rounded-lg text-xs font-medium" onclick="deleteBook('${b.id}', '${sp}')">✕</button>
@@ -1095,8 +1095,6 @@
       const embedUrl = `<iframe src="${shareUrl}" width="100%" height="600" frameborder="0" allowfullscreen></iframe>`;
       const escapedTitle = b.title.replace(/'/g, "\\'");
       const escapedPdfUrl = b.pdfUrl.replace(/'/g, "\\'");
-      const escapedShareUrl = shareUrl.replace(/'/g, "\\'");
-      const escapedEmbedUrl = embedUrl.replace(/'/g, "\\'");
       const sp = (b.storagePath || '').replace(/'/g, "\\'");
 
       return `
@@ -1109,7 +1107,7 @@
           <span class="badge badge-pdf hidden md:inline-flex">PDF</span>
           <div class="flex gap-1 ml-2">
             <button class="btn-primary px-3 py-1.5 rounded-lg text-xs font-semibold" onclick="openViewer('${escapedPdfUrl}', '${escapedTitle}')">▶</button>
-            <button class="btn-ghost px-2 py-1.5 rounded-lg text-xs font-medium" onclick="shareBook('${escapedTitle}', '${escapedShareUrl}', '${escapedEmbedUrl}')">Kongsi</button>
+            <button class="btn-ghost px-2 py-1.5 rounded-lg text-xs font-medium share-btn" data-title="${b.title}" data-share-url="${shareUrl}" data-embed-url="${embedUrl}">Kongsi</button>
             <button class="btn-ghost px-2 py-1.5 rounded-lg text-xs font-medium" onclick="renameBook('${b.id}', '${escapedTitle}')">Tukar Nama</button>
             <button class="btn-ghost px-2 py-1.5 rounded-lg text-xs font-medium" onclick="moveBook('${b.id}')">Alih</button>
             <button class="btn-danger px-2 py-1.5 rounded-lg text-xs font-medium" onclick="deleteBook('${b.id}', '${sp}')">✕</button>
@@ -1117,10 +1115,21 @@
         </div>`;
     }
 
-    // ─── Share helper ───
+    // ─── Share helper (data-attribute driven) ───
     window.shareBook = (title, shareUrl, embedUrl) => {
       customModal.share(title, shareUrl, embedUrl);
     };
+    function attachShareHandlers() {
+      document.querySelectorAll('.share-btn').forEach(btn => {
+        btn.addEventListener('click', function(e) {
+          e.preventDefault();
+          const title = this.getAttribute('data-title');
+          const shareUrl = this.getAttribute('data-share-url');
+          const embedUrl = this.getAttribute('data-embed-url');
+          shareBook(title, shareUrl, embedUrl);
+        });
+      });
+    }
 
     // ─── Folder Actions ───
     window.renameFolder = (id, oldName) => {
