@@ -5,32 +5,128 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>MyFlipbook - Penukar PDF ke Buku Selak Interaktif</title>
   
-  <!-- Tailwind CSS untuk reka bentuk antaramuka moden -->
   <script src="https://cdn.tailwindcss.com"></script>
   <!-- PDF.js untuk membaca fail PDF -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <!-- PageFlip (StPageFlip) untuk kesan selakan halaman 3D -->
   <script src="https://cdn.jsdelivr.net/npm/page-flip/dist/js/page-flip.browser.js"></script>
+  <!-- QRCode.js untuk penjanaan Kod QR -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 
   <style>
-    body { background-color: #f8fafc; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
-    .flipbook-container { width: 100%; max-width: 900px; height: 600px; margin: 0 auto; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.2); }
-    .page { background-color: white; border: 1px solid #e2e8f0; overflow: hidden; display: flex; align-items: center; justify-content: center; }
-    canvas { width: 100%; height: 100%; object-fit: contain; }
+    body { background-color: #f3f4f6; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+    
+    /* Latar belakang kelabu bersih seperti Heyzine */
+    #viewer-section {
+        background-color: #e5e7eb;
+        min-height: 100vh;
+    }
+
+    /* Bekas buku selak utama */
+    .flipbook-container { 
+        width: 100%; 
+        max-width: 1200px; /* Lebih lebar untuk dua muka surat */
+        height: 85vh; 
+        min-height: 600px;
+        margin: 0 auto; 
+        position: relative;
+    }
+    
+    /* Gaya setiap halaman */
+    .page { 
+        background-color: white; 
+        overflow: hidden; 
+        display: flex; 
+        align-items: center; 
+        justify-content: center;
+        /* Bayang-bayang buku yang realistik */
+        box-shadow: 0 0 20px rgba(0,0,0,0.1), inset 0 0 15px rgba(0,0,0,0.03);
+    }
+    
+    /* Kesan bayang lipatan di tengah (Binding shadow) */
+    .page.--left { border-right: 1px solid rgba(0,0,0,0.1); }
+    .page.--right { border-left: 1px solid rgba(0,0,0,0.1); }
+
+    canvas { 
+        width: 100%; 
+        height: 100%; 
+        object-fit: contain; 
+        /* Pastikan kanvas jernih */
+        image-rendering: -webkit-optimize-contrast;
+    }
+
+    /* Ikon navigasi (Anak panah kiri kanan) */
+    .nav-arrow {
+        position: absolute;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 50px;
+        height: 50px;
+        border-radius: 50%;
+        background-color: rgba(255, 255, 255, 0.8);
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        z-index: 20;
+        font-size: 24px;
+        color: #4b5563;
+    }
+    .nav-arrow:hover { background-color: white; transform: translateY(-50%) scale(1.1); color: #111827; }
+    .nav-arrow-left { left: -60px; }
+    .nav-arrow-right { right: -60px; }
+    
+    @media (max-width: 768px) {
+        .nav-arrow-left { left: 10px; }
+        .nav-arrow-right { right: 10px; }
+    }
+
+    /* Bar Alat Terapung Heyzine-style */
+    .floating-toolbar {
+        position: absolute;
+        top: 20px;
+        right: 20px;
+        background-color: rgba(255, 255, 255, 0.9);
+        backdrop-filter: blur(5px);
+        padding: 8px 16px;
+        border-radius: 30px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        display: flex;
+        gap: 15px;
+        z-index: 30;
+    }
+    
+    .floating-toolbar button {
+        color: #4b5563;
+        transition: color 0.2s;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 5px;
+    }
+    .floating-toolbar button:hover { color: #4f46e5; }
+    
+    /* Modal Animasi */
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(-10px) scale(0.95); }
+        to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    .modal-animate { animation: fadeIn 0.3s ease-out forwards; }
   </style>
 </head>
-<body class="min-h-screen flex flex-col">
+<body class="min-h-screen flex flex-col relative">
 
-  <!-- Navigasi Utama -->
-  <nav class="bg-indigo-600 text-white shadow-md p-4">
+  <!-- Navigasi Utama (Disembunyikan semasa membaca buku) -->
+  <nav id="main-nav" class="bg-indigo-600 text-white shadow-md p-4 transition-all duration-300">
     <div class="max-w-6xl mx-auto flex justify-between items-center">
-      <h1 class="text-2xl font-bold tracking-wide flex items-center gap-2">
+      <h1 class="text-2xl font-bold tracking-wide flex items-center gap-2 cursor-pointer" onclick="window.location.href=window.location.pathname">
         <span>📖</span> MyFlipbook
       </h1>
       <div id="auth-section">
-        <!-- Ditukar teks untuk lebih jelas di persekitaran Sandbox -->
         <button id="login-btn" class="bg-white text-indigo-600 px-4 py-2 rounded-lg font-semibold shadow hover:bg-gray-100 transition">
-          Mula (Log Masuk)
+          Log Masuk
         </button>
         <div id="user-info" class="hidden flex items-center gap-3">
           <span id="user-name" class="text-sm font-medium"></span>
@@ -43,106 +139,143 @@
   </nav>
 
   <!-- Model AI Assistant (Gemini Chat) - Terapung -->
-  <div id="ai-chat-modal" class="hidden fixed bottom-6 right-6 w-80 bg-white rounded-xl shadow-2xl border border-indigo-100 flex flex-col overflow-hidden z-50 transition-all transform origin-bottom-right">
+  <div id="ai-chat-modal" class="hidden fixed bottom-6 right-6 w-80 bg-white rounded-xl shadow-2xl border border-indigo-100 flex flex-col overflow-hidden z-[60] transition-all transform origin-bottom-right">
     <div class="bg-indigo-600 text-white p-3 flex justify-between items-center cursor-pointer" id="ai-chat-header">
       <h3 class="font-bold flex items-center gap-2"><span class="text-xl">✨</span> Gemini Assistant</h3>
       <button id="close-ai-btn" class="text-white hover:text-gray-200 transition">✕</button>
     </div>
-    
     <div class="p-3 bg-indigo-50 border-b border-indigo-100 text-xs text-indigo-800">
-      <p>Sila masukkan API Key Gemini anda untuk menggunakan pembantu AI.</p>
-      <input type="password" id="gemini-api-key" placeholder="Tampal API Key Gemini anda di sini..." class="w-full mt-2 p-1.5 border border-indigo-300 rounded text-xs focus:outline-none focus:border-indigo-500">
-      <a href="https://aistudio.google.com/app/apikey" target="_blank" class="text-indigo-600 underline mt-1 block">Dapatkan API Key di sini</a>
+      <p>Masukkan API Key Gemini anda untuk bersembang dengan dokumen.</p>
+      <input type="password" id="gemini-api-key" placeholder="API Key..." class="w-full mt-2 p-1.5 border border-indigo-300 rounded text-xs focus:outline-none focus:border-indigo-500">
     </div>
-
     <div id="chat-messages" class="flex-grow p-4 overflow-y-auto h-64 bg-gray-50 flex flex-col gap-3 text-sm">
       <div class="self-start bg-gray-200 text-gray-800 rounded-lg rounded-tl-none p-3 max-w-[85%] shadow-sm">
-        Hai! Saya pembantu AI terbina dalam. Saya boleh menolong anda meringkaskan isi buku ini, menterjemah teks, atau menjawab soalan anda. Apa yang ingin anda tanya?
+        Hai! Saya pembantu AI. Ada bahagian buku yang anda kurang faham?
       </div>
     </div>
     <form id="ai-form" class="p-3 bg-white border-t border-gray-200 flex gap-2">
-      <input type="text" id="ai-input" placeholder="Tanya sesuatu..." class="flex-grow p-2 border border-gray-300 rounded-lg focus:outline-none focus:border-indigo-500 text-sm">
-      <button type="submit" id="ai-submit-btn" class="bg-indigo-600 text-white px-3 py-2 rounded-lg hover:bg-indigo-700 transition">
-        Kirim
-      </button>
+      <input type="text" id="ai-input" placeholder="Tanya sesuatu..." class="flex-grow p-2 border border-gray-300 rounded-lg focus:outline-none text-sm">
+      <button type="submit" id="ai-submit-btn" class="bg-indigo-600 text-white px-3 py-2 rounded-lg hover:bg-indigo-700 transition">Kirim</button>
     </form>
   </div>
 
-  <!-- Butang Terapung AI (Bila Chat ditutup) -->
-  <button id="float-ai-btn" class="fixed bottom-6 right-6 bg-indigo-600 text-white p-4 rounded-full shadow-xl hover:bg-indigo-700 transition transform hover:scale-105 z-40 hidden flex items-center justify-center">
-    <span class="text-2xl">✨</span>
-  </button>
-
-  <!-- Kandungan Utama -->
-  <main class="max-w-6xl mx-auto p-6 flex-grow w-full relative">
+  <main id="main-content" class="max-w-6xl mx-auto p-6 flex-grow w-full relative transition-all duration-300">
+    
+    <!-- Seksyen Muat Naik -->
+    <section id="upload-section" class="hidden bg-white p-6 rounded-xl shadow-sm border border-gray-100 mb-8">
+      <h2 class="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
+        <span>📤</span> Muat Naik PDF Baru
+      </h2>
+      <form id="upload-form" class="flex flex-col md:flex-row gap-4 items-center">
+        <input type="text" id="book-title" placeholder="Tajuk Buku Selak (cth: Nota Sejarah)" required
+               class="w-full md:w-1/2 p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm">
+        <input type="file" id="pdf-file" accept="application/pdf" required
+               class="w-full md:w-1/3 p-2 border border-gray-300 rounded-lg text-sm bg-gray-50">
+        <button type="submit" id="submit-btn" 
+                class="w-full md:w-auto bg-indigo-600 text-white px-6 py-2.5 rounded-lg font-semibold hover:bg-indigo-700 transition shadow-sm">
+          Muat Naik
+        </button>
+      </form>
+      <div id="upload-progress" class="hidden mt-4 text-sm text-indigo-600 font-medium">Memproses dan memuat naik PDF...</div>
     </section>
 
     <!-- Senarai Buku Selak (Dashboard) -->
     <section id="dashboard-section">
       <h2 class="text-xl font-bold text-gray-800 mb-4 flex items-center justify-between">
         Senarai Buku Selak Anda
-        <button id="refresh-btn" class="text-sm bg-gray-200 hover:bg-gray-300 text-gray-700 py-1 px-3 rounded-md transition hidden">↻ Segar Semula</button>
+        <button id="refresh-btn" class="text-sm bg-gray-200 hover:bg-gray-300 text-gray-700 py-1 px-3 rounded-md transition hidden">↻ Segar</button>
       </h2>
-      <div id="books-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      <div id="books-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <div class="col-span-full text-center py-10 bg-white rounded-xl border border-dashed border-gray-300">
-          <p class="text-gray-500 mb-2">Sila log masuk untuk melihat atau memuat naik buku selak.</p>
+          <p class="text-gray-500 mb-2">Sila log masuk untuk melihat buku.</p>
         </div>
       </div>
     </section>
 
-    <!-- Pemapar Buku Selak (Viewer) -->
-    <section id="viewer-section" class="hidden flex flex-col items-center">
-      <div class="w-full flex justify-between items-center mb-6 bg-white p-4 rounded-lg shadow-sm border border-gray-200">
-        <h2 id="viewer-title" class="text-xl font-bold text-gray-800 truncate pr-4"></h2>
-        <div class="flex gap-2">
-            <button id="open-ai-from-viewer" class="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 px-4 py-2 rounded-lg text-sm font-semibold transition border border-indigo-200 flex-shrink-0 flex items-center gap-1">
-              ✨ Bantuan AI
-            </button>
-            <button id="close-viewer-btn" class="bg-red-50 hover:bg-red-100 text-red-600 px-4 py-2 rounded-lg text-sm font-semibold transition border border-red-200 flex-shrink-0">
-              ✕ Tutup Pemapar
-            </button>
+    <!-- Modal Perkongsian -->
+    <div id="share-modal-overlay" class="hidden fixed inset-0 bg-black bg-opacity-50 z-[100] flex items-center justify-center backdrop-blur-sm">
+        <div class="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md m-4 modal-animate flex flex-col relative">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-xl font-bold text-gray-800">Kongsi Buku</h3>
+                <button id="close-share-modal" class="text-gray-400 hover:text-red-500 transition text-2xl leading-none">&times;</button>
+            </div>
+            
+            <p id="share-book-title" class="text-sm text-gray-500 mb-4 truncate font-medium"></p>
+            
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 mb-1 uppercase">Pautan Langsung</label>
+                    <div class="flex gap-2">
+                        <input type="text" id="share-link-input" readonly class="flex-grow p-2.5 bg-gray-50 border border-gray-300 rounded-lg text-sm text-gray-700">
+                        <button id="copy-link-btn" class="bg-indigo-100 text-indigo-700 px-4 py-2.5 rounded-lg text-sm font-semibold hover:bg-indigo-200 transition">Salin</button>
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 mb-1 uppercase">Kod Benam (Embed)</label>
+                    <div class="relative">
+                        <textarea id="share-embed-input" readonly rows="2" class="w-full p-2.5 bg-gray-50 border border-gray-300 rounded-lg text-xs font-mono resize-none"></textarea>
+                    </div>
+                </div>
+                <div class="pt-4 border-t border-gray-100 flex flex-col items-center">
+                    <label class="block text-xs font-semibold text-gray-600 mb-3 uppercase">Kod QR</label>
+                    <div class="bg-white p-3 border-2 border-gray-100 rounded-xl inline-block">
+                        <div id="qrcode-container"></div>
+                    </div>
+                </div>
+            </div>
         </div>
-      </div>
-
-      <!-- Kawalan Navigasi -->
-      <div class="flex gap-4 mb-6 bg-white px-6 py-2.5 rounded-full shadow-sm border border-gray-200">
-        <button id="prev-page" class="text-gray-600 hover:text-indigo-600 font-bold px-3 py-1 transition flex items-center gap-1">
-          <span>◀</span> Sebelumnya
-        </button>
-        <div class="h-6 w-px bg-gray-300 self-center"></div>
-        <span id="page-counter" class="text-sm font-medium text-gray-700 self-center min-w-[100px] text-center">Menyediakan...</span>
-        <div class="h-6 w-px bg-gray-300 self-center"></div>
-        <button id="next-page" class="text-gray-600 hover:text-indigo-600 font-bold px-3 py-1 transition flex items-center gap-1">
-          Seterusnya <span>▶</span>
-        </button>
-      </div>
-
-      <!-- Bekas Kanvas StPageFlip -->
-      <div id="flipbook" class="flipbook-container rounded-lg bg-gray-200 flex items-center justify-center relative">
-        <div id="loading-indicator" class="absolute inset-0 flex flex-col items-center justify-center bg-gray-50 bg-opacity-90 z-10 rounded-lg">
-           <svg class="animate-spin h-10 w-10 text-indigo-600 mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-             <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-           </svg>
-           <span id="loading-text" class="text-indigo-800 font-medium">Memuat turun dan memproses PDF... Sila tunggu (Mungkin mengambil masa)</span>
-        </div>
-      </div>
-    </section>
-
+    </div>
   </main>
 
-  <footer class="bg-gray-800 text-gray-400 text-center py-4 text-xs mt-auto">
-    MyFlipbook (myflipbook-46cdc) &copy; 2026. Dikuasakan oleh Firebase & StPageFlip.
-  </footer>
+  <!-- Pemapar Buku Selak (Viewer) - Latar Penuh (Immersive) -->
+  <section id="viewer-section" class="hidden fixed inset-0 z-50 flex flex-col items-center justify-center">
+      
+      <!-- Bar Alat Terapung (Top Right) -->
+      <div class="floating-toolbar">
+          <button id="open-ai-from-viewer" title="Tanya AI" class="text-2xl font-bold flex items-center gap-2 px-2">
+             <span class="text-xl">✨</span> <span class="text-sm font-semibold hidden md:block">Bantuan AI</span>
+          </button>
+          <div class="w-px h-6 bg-gray-300 self-center"></div>
+          <button id="close-viewer-btn" title="Tutup" class="text-2xl font-bold flex items-center gap-2 px-2">
+              <span>✕</span> <span class="text-sm font-semibold hidden md:block">Tutup</span>
+          </button>
+      </div>
 
-  <!-- Firebase Modular SDK (v10+) -->
+      <!-- Tajuk Buku (Bottom Center) -->
+      <div class="absolute bottom-6 left-1/2 transform -translate-x-1/2 bg-white bg-opacity-80 backdrop-blur px-6 py-2 rounded-full shadow-sm text-sm font-medium text-gray-700 z-30 flex items-center gap-4 border border-gray-200">
+          <span id="viewer-title" class="truncate max-w-[200px] md:max-w-md"></span>
+          <div class="w-px h-4 bg-gray-400"></div>
+          <span id="page-counter">Bersedia...</span>
+      </div>
+
+      <!-- Ruang Kanvas Buku Selak -->
+      <div class="w-full px-4 md:px-20 h-full flex items-center justify-center relative">
+          <div id="flipbook" class="flipbook-container flex items-center justify-center">
+            
+            <!-- Petunjuk Loading -->
+            <div id="loading-indicator" class="absolute inset-0 flex flex-col items-center justify-center z-10">
+               <svg class="animate-spin h-10 w-10 text-indigo-600 mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                 <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                 <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+               </svg>
+               <span id="loading-text" class="text-gray-600 font-medium bg-white px-4 py-2 rounded-lg shadow-sm">Memuat turun PDF... Sila tunggu.</span>
+            </div>
+            
+            <!-- Anak Panah Kiri -->
+            <button id="prev-page" class="nav-arrow nav-arrow-left hidden">◀</button>
+            <!-- Anak Panah Kanan -->
+            <button id="next-page" class="nav-arrow nav-arrow-right hidden">▶</button>
+            
+          </div>
+      </div>
+  </section>
+
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-app.js";
-    import { getAuth, signInWithPopup, signInAnonymously, GoogleAuthProvider, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-auth.js";
+    import { getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-auth.js";
     import { getFirestore, collection, addDoc, getDocs, query, orderBy, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-firestore.js";
     import { getStorage, ref, uploadBytesResumable, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-storage.js";
 
-    // Konfigurasi Asas Firebase
     const firebaseConfig = {
       apiKey: "AIzaSyDPLNOcIsmNlk2caaX-2ftsKCTcnyPWyTc",
       authDomain: "myflipbook-46cdc.firebaseapp.com",
@@ -153,7 +286,6 @@
       measurementId: "G-7QD937QKZY"
     };
     
-    // Inisialisasi Firebase
     const app = initializeApp(firebaseConfig);
     const auth = getAuth(app);
     const db = getFirestore(app);
@@ -168,462 +300,292 @@
     const userInfo = document.getElementById('user-info');
     const userName = document.getElementById('user-name');
     const uploadSection = document.getElementById('upload-section');
-    const refreshBtn = document.getElementById('refresh-btn');
-
-    loginBtn.addEventListener('click', async () => {
-        // Semak jika aplikasi sedang berjalan di dalam iFrame (ruang pratonton)
-        if (window.self !== window.top) {
-            alert("Ruang pratonton menyekat Popup Google. Sistem kini log masuk sebagai 'Tetamu'.\n\n(Pastikan anda telah mengaktifkan kaedah 'Anonymous' di Firebase Console!)");
-            try {
-                await signInAnonymously(auth);
-            } catch (anonError) {
-                console.error("Ralat Tetamu:", anonError);
-                alert("Gagal mengaktifkan tetamu: " + anonError.message + "\n\nAdakah anda sudah mengaktifkan 'Anonymous' di tab Sign-in Method Firebase?");
-            }
-        } else {
-            // Berjalan secara normal (fail dibuka terus di pelayar)
-            try {
-                await signInWithPopup(auth, googleProvider);
-            } catch (error) {
-                console.warn("Ralat Log Masuk Utama:", error);
-                alert(`Ralat: ${error.message}`);
-            }
-        }
-    });
+    const mainNav = document.getElementById('main-nav');
+    const mainContent = document.getElementById('main-content');
     
-    logoutBtn.addEventListener('click', () => signOut(auth));
+    const shareModal = document.getElementById('share-modal-overlay');
+    const urlParams = new URLSearchParams(window.location.search);
+    const directBookUrl = urlParams.get('book');
+    const directBookTitle = urlParams.get('title') || 'Buku Kongsi';
+
+    if (loginBtn) {
+        loginBtn.addEventListener('click', async () => {
+            try { await signInWithPopup(auth, googleProvider); } 
+            catch (error) { 
+                console.warn("Ralat Log Masuk (Kemungkinan disekat oleh persekitaran Sandbox):", error);
+            }
+        });
+    }
+    
+    if (logoutBtn) {
+        logoutBtn.addEventListener('click', () => signOut(auth));
+    }
 
     onAuthStateChanged(auth, (user) => {
       currentUser = user;
       const booksGrid = document.getElementById('books-grid');
       
       if (user) {
-        loginBtn.classList.add('hidden');
-        userInfo.classList.remove('hidden');
-        userName.textContent = user.isAnonymous ? "Pengguna Tetamu" : user.displayName;
-        
-        if (uploadSection) uploadSection.classList.remove('hidden');
-        if (refreshBtn) refreshBtn.classList.remove('hidden');
-        
-        loadBooks();
+        if(loginBtn) loginBtn.classList.add('hidden');
+        if(userInfo) userInfo.classList.remove('hidden');
+        if(userName) userName.textContent = user.displayName;
+        if(uploadSection) uploadSection.classList.remove('hidden');
+        if (!directBookUrl) loadBooks();
       } else {
-        loginBtn.classList.remove('hidden');
-        userInfo.classList.add('hidden');
-        if (uploadSection) uploadSection.classList.add('hidden');
-        if (refreshBtn) refreshBtn.classList.add('hidden');
-        
-        if(booksGrid) {
-             booksGrid.innerHTML = '<div class="col-span-full text-center py-10 bg-white rounded-xl border border-dashed border-gray-300"><p class="text-gray-500 mb-2">Sila log masuk untuk melihat atau memuat naik buku selak.</p></div>';
+        if(loginBtn) loginBtn.classList.remove('hidden');
+        if(userInfo) userInfo.classList.add('hidden');
+        if(uploadSection) uploadSection.classList.add('hidden');
+        if(booksGrid && !directBookUrl) {
+             booksGrid.innerHTML = '<div class="col-span-full text-center py-10 bg-white rounded-xl border border-dashed border-gray-300"><p class="text-gray-500">Sila log masuk untuk melihat atau memuat naik buku.</p></div>';
         }
       }
     });
 
-    if (refreshBtn) {
-       refreshBtn.addEventListener('click', () => { if(currentUser) loadBooks(); });
-    }
-
     const aiChatModal = document.getElementById('ai-chat-modal');
-    const closeAiBtn = document.getElementById('close-ai-btn');
-    const floatAiBtn = document.getElementById('float-ai-btn');
-    const openAiViewerBtn = document.getElementById('open-ai-from-viewer');
-    const chatMessages = document.getElementById('chat-messages');
-    const aiForm = document.getElementById('ai-form');
     const aiInput = document.getElementById('ai-input');
-    const geminiKeyInput = document.getElementById('gemini-api-key');
-    const aiSubmitBtn = document.getElementById('ai-submit-btn');
-
+    const chatMessages = document.getElementById('chat-messages');
     let chatHistory = []; 
 
-    function toggleChat() {
-        if(aiChatModal.classList.contains('hidden')) {
-            aiChatModal.classList.remove('hidden');
-            floatAiBtn.classList.add('hidden');
-        } else {
-            aiChatModal.classList.add('hidden');
-            floatAiBtn.classList.remove('hidden');
-        }
-    }
+    function toggleChat() { if(aiChatModal) aiChatModal.classList.toggle('hidden'); }
+    if(document.getElementById('close-ai-btn')) document.getElementById('close-ai-btn').addEventListener('click', toggleChat);
+    if(document.getElementById('open-ai-from-viewer')) document.getElementById('open-ai-from-viewer').addEventListener('click', toggleChat);
 
-    closeAiBtn.addEventListener('click', toggleChat);
-    floatAiBtn.addEventListener('click', toggleChat);
-    openAiViewerBtn.addEventListener('click', toggleChat);
+    const aiForm = document.getElementById('ai-form');
+    if(aiForm) {
+        aiForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const promptText = aiInput.value.trim();
+            const apiKey = document.getElementById('gemini-api-key').value.trim();
+            const btn = document.getElementById('ai-submit-btn');
 
-    function addMessageToChat(role, text) {
-        const msgDiv = document.createElement('div');
-        msgDiv.className = role === 'user' 
-            ? "self-end bg-indigo-600 text-white rounded-lg rounded-tr-none p-3 max-w-[85%] shadow-sm whitespace-pre-wrap"
-            : "self-start bg-gray-200 text-gray-800 rounded-lg rounded-tl-none p-3 max-w-[85%] shadow-sm whitespace-pre-wrap";
-        
-        // Buang simbol Markdown yang ringkas jika ada
-        let formattedText = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-        msgDiv.innerHTML = formattedText;
-        
-        chatMessages.appendChild(msgDiv);
-        chatMessages.scrollTop = chatMessages.scrollHeight; // Auto-scroll ke bawah
-    }
+            if(!promptText) return;
+            if(!apiKey) return alert("Sila masukkan API Key Gemini anda dahulu (Dapatkan di aistudio.google.com).");
 
-    aiForm.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const promptText = aiInput.value.trim();
-        const apiKey = geminiKeyInput.value.trim();
+            chatMessages.innerHTML += `<div class="self-end bg-indigo-600 text-white rounded-lg rounded-tr-none p-3 max-w-[85%] shadow-sm whitespace-pre-wrap">${promptText}</div>`;
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+            aiInput.value = '';
+            btn.disabled = true; btn.innerHTML = '...';
+            
+            chatHistory.push({ role: "user", parts: [{ text: promptText }] });
 
-        if(!promptText) return;
-        if(!apiKey) {
-            alert("Sila masukkan API Key Gemini anda di ruangan tetapan chat terlebih dahulu.");
-            return;
-        }
-
-        // 1. Tambah soalan pengguna ke UI & Sejarah
-        addMessageToChat('user', promptText);
-        aiInput.value = '';
-        aiSubmitBtn.disabled = true;
-        aiSubmitBtn.innerHTML = '<span class="animate-pulse">...</span>';
-
-        // Kemas kini sejarah chat untuk API
-        chatHistory.push({
-            role: "user",
-            parts: [{ text: promptText }]
+            try {
+                const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ contents: chatHistory, systemInstruction: { parts: [{ text: "Anda AI pembantu MyFlipbook. Jawab soalan tentang buku/dokumen. Bahasa Melayu ringkas." }] } })
+                });
+                if (!res.ok) throw new Error("Ralat Rangkaian AI");
+                const result = await res.json();
+                const aiText = result?.candidates?.[0]?.content?.parts?.[0]?.text || "Maaf, ralat pemprosesan.";
+                
+                chatMessages.innerHTML += `<div class="self-start bg-gray-200 text-gray-800 rounded-lg rounded-tl-none p-3 max-w-[85%] shadow-sm whitespace-pre-wrap">${aiText.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')}</div>`;
+                chatHistory.push({ role: "model", parts: [{ text: aiText }] });
+            } catch (error) {
+                chatMessages.innerHTML += `<div class="self-start bg-red-100 text-red-700 p-2 text-xs rounded-lg">Ralat: ${error.message}</div>`;
+                chatHistory.pop();
+            }
+            btn.disabled = false; btn.innerHTML = 'Kirim';
+            chatMessages.scrollTop = chatMessages.scrollHeight;
         });
+    }
 
-        try {
-            // 2. Sediakan Payload (Struktur Permintaan) ke Gemini API (Model: gemini-3-flash-preview)
-            // Kami menggunakan REST API pendekatan terus menerus
-            const payload = {
-                contents: chatHistory,
-                systemInstruction: {
-                    parts: [{ text: "Anda adalah pembantu AI yang bijak, membantu, dan mesra yang terbenam di dalam sebuah aplikasi bernama 'MyFlipbook'. Anda membantu pengguna untuk memahami buku PDF, meringkaskan, dan menjawab soalan am. Jawab dalam Bahasa Melayu. Ringkaskan jawapan anda (jangan terlalu panjang) supaya sesuai untuk tetingkap chat yang kecil." }]
-                }
-            };
-
-            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
-
-            // 3. Buat Panggilan (Fetch)
-            const response = await fetch(apiUrl, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
-
-            if (!response.ok) {
-                throw new Error(`Ralat Pelayan: ${response.status}`);
-            }
-
-            const result = await response.json();
-            
-            // 4. Ekstrak teks jawapan dari Model Gemini
-            let aiResponseText = "Maaf, saya tidak dapat merumuskan jawapan ketika ini.";
-            
-            if (result.candidates && result.candidates[0] && result.candidates[0].content && result.candidates[0].content.parts) {
-                 aiResponseText = result.candidates[0].content.parts[0].text;
-            }
-
-            // 5. Tambah jawapan ke UI dan simpan dalam sejarah
-            addMessageToChat('model', aiResponseText);
-            
-            chatHistory.push({
-                role: "model",
-                parts: [{ text: aiResponseText }]
-            });
-
-        } catch (error) {
-            console.error("Ralat Gemini API:", error);
-            addMessageToChat('model', `Ralat sambungan ke AI: ${error.message}. Pastikan API Key anda sah.`);
-            // Buang entri pengguna terakhir jika gagal supaya logik history tidak rosak
-            chatHistory.pop();
-        } finally {
-            aiSubmitBtn.disabled = false;
-            aiSubmitBtn.innerHTML = 'Kirim';
-        }
-    });
-
-
-    // Muat Naik
     const uploadForm = document.getElementById('upload-form');
-    const uploadProgress = document.getElementById('upload-progress');
-    const submitBtn = document.getElementById('submit-btn');
-
     if(uploadForm) {
         uploadForm.addEventListener('submit', async (e) => {
           e.preventDefault();
-          if (!currentUser) return alert("Sila log masuk!");
-
-          const fileInput = document.getElementById('pdf-file');
-          const titleInput = document.getElementById('book-title');
-          const file = fileInput.files[0];
-
+          if (!currentUser) return;
+          const file = document.getElementById('pdf-file').files[0];
+          const title = document.getElementById('book-title').value;
           if (!file) return;
 
+          const btn = document.getElementById('submit-btn');
+          const prog = document.getElementById('upload-progress');
+          btn.disabled = true; prog.classList.remove('hidden'); prog.textContent = "Memuat naik...";
+
           try {
-            submitBtn.disabled = true;
-            submitBtn.classList.add('opacity-50');
-            uploadProgress.classList.remove('hidden');
-            uploadProgress.textContent = "Memuat naik fail ke pelayan... (0%)";
-
-            // Gunakan uploadBytesResumable untuk memantau peratusan
             const storageRef = ref(storage, `pdfs/${currentUser.uid}/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9.]/g, '')}`);
-            const uploadTask = uploadBytesResumable(storageRef, file);
-
-            uploadTask.on('state_changed', 
-              (snapshot) => {
-                const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-                uploadProgress.textContent = `Memuat naik fail ke pelayan... (${Math.round(progress)}%)`;
-              }, 
-              (error) => {
-                console.error("Ralat Muat Naik Storage:", error);
-                alert("Gagal memuat naik fail PDF. Sila semak Security Rules Storage anda.");
-                resetUploadUI();
-              }, 
+            const task = uploadBytesResumable(storageRef, file);
+            
+            task.on('state_changed', 
+              (snap) => { prog.textContent = `Memuat naik... ${Math.round((snap.bytesTransferred/snap.totalBytes)*100)}%`; },
+              (err) => { alert("Ralat muat naik: "+err.message); btn.disabled = false; prog.classList.add('hidden'); },
               async () => {
-                uploadProgress.textContent = "Menyimpan rekod ke pangkalan data...";
-                const downloadUrl = await getDownloadURL(uploadTask.snapshot.ref);
-
-                await addDoc(collection(db, "flipbooks"), {
-                  title: titleInput.value,
-                  pdfUrl: downloadUrl,
-                  userId: currentUser.uid,
-                  authorName: currentUser.displayName,
-                  createdAt: serverTimestamp()
-                });
-
-                alert("Buku selak berjaya dicipta!");
-                resetUploadUI();
-                uploadForm.reset();
-                loadBooks();
+                prog.textContent = "Menyimpan ke pangkalan data...";
+                const url = await getDownloadURL(task.snapshot.ref);
+                await addDoc(collection(db, "flipbooks"), { title, pdfUrl: url, authorName: currentUser.displayName, createdAt: serverTimestamp() });
+                uploadForm.reset(); loadBooks();
+                btn.disabled = false; prog.classList.add('hidden');
+                alert("Berjaya dimuat naik!");
               }
             );
-
-          } catch (error) {
-            console.error("Ralat keseluruhan:", error);
-            alert("Ralat tidak dijangka berlaku.");
-            resetUploadUI();
-          }
+          } catch (e) { alert("Ralat: "+e.message); btn.disabled=false; }
         });
     }
 
-    function resetUploadUI() {
-      submitBtn.disabled = false;
-      submitBtn.classList.remove('opacity-50');
-      uploadProgress.classList.add('hidden');
-    }
-
-    // Memuatkan Buku dari Firestore
     async function loadBooks() {
-      if(!db) return;
-      const booksGrid = document.getElementById('books-grid');
-      booksGrid.innerHTML = '<div class="col-span-full py-10 text-center"><div class="inline-block animate-spin h-8 w-8 border-4 border-indigo-500 border-t-transparent rounded-full mb-2"></div><p class="text-gray-500">Memuatkan data dari awan...</p></div>';
-
+      const grid = document.getElementById('books-grid');
+      if(!grid) return;
+      grid.innerHTML = '<div class="col-span-full py-10 text-center text-gray-500">Memuatkan...</div>';
       try {
         const q = query(collection(db, "flipbooks"), orderBy("createdAt", "desc"));
-        const querySnapshot = await getDocs(q);
+        const snap = await getDocs(q);
+        grid.innerHTML = '';
+        if (snap.empty) return grid.innerHTML = '<div class="col-span-full text-center text-gray-500">Tiada buku.</div>';
         
-        booksGrid.innerHTML = '';
-        if (querySnapshot.empty) {
-          booksGrid.innerHTML = '<div class="col-span-full text-center py-10 bg-white rounded-xl border border-dashed border-gray-300"><p class="text-gray-500 mb-2">Tiada buku selak dijumpai. Jadilah yang pertama memuat naik!</p></div>';
-          return;
-        }
+        const currentUrl = window.location.origin + window.location.pathname;
 
-        querySnapshot.forEach((doc) => {
+        snap.forEach((doc) => {
           const data = doc.data();
-          const card = document.createElement('div');
-          card.className = "bg-white p-5 rounded-xl shadow-sm border border-gray-100 hover:shadow-lg transition-shadow duration-300 flex flex-col justify-between h-full";
+          const shareUrl = `${currentUrl}?book=${encodeURIComponent(data.pdfUrl)}&title=${encodeURIComponent(data.title)}`;
           
-          const dateStr = data.createdAt ? new Date(data.createdAt.toDate()).toLocaleDateString('ms-MY') : 'Baru sahaja';
-          
-          card.innerHTML = `
-            <div class="mb-4">
-              <div class="h-40 bg-gradient-to-br from-indigo-50 to-blue-50 rounded-lg mb-4 flex items-center justify-center text-5xl shadow-inner relative overflow-hidden group">
-                 📚
-                 <div class="absolute inset-0 bg-indigo-600 bg-opacity-0 group-hover:bg-opacity-10 transition-all flex items-center justify-center"></div>
+          grid.innerHTML += `
+            <div class="bg-white p-4 rounded-xl border border-gray-100 shadow-sm hover:shadow-md transition flex flex-col justify-between h-full">
+              <div>
+                <div class="h-32 bg-gray-50 rounded-lg mb-3 flex items-center justify-center text-5xl border">📘</div>
+                <h3 class="font-bold text-gray-800 text-md truncate" title="${data.title}">${data.title}</h3>
+                <p class="text-[10px] text-gray-400 mb-3">${new Date(data.createdAt?.toDate()||Date.now()).toLocaleDateString()}</p>
               </div>
-              <h3 class="font-bold text-gray-800 text-lg leading-tight mb-2 line-clamp-2" title="${data.title}">${data.title}</h3>
-              <div class="flex justify-between items-center text-xs text-gray-500">
-                <span class="truncate max-w-[60%]">✍️ ${data.authorName || 'Tanpa Nama'}</span>
-                <span>📅 ${dateStr}</span>
+              <div class="flex gap-2">
+                <button class="view-btn flex-1 bg-indigo-600 hover:bg-indigo-700 text-white text-sm py-2 rounded-lg font-semibold" data-url="${data.pdfUrl}" data-title="${data.title}">Buka</button>
+                <button class="share-btn bg-gray-100 hover:bg-gray-200 text-gray-600 px-3 rounded-lg" data-surl="${shareUrl}" data-t="${data.title}">🔗</button>
               </div>
-            </div>
-            <div class="flex gap-2 mt-auto">
-              <button class="view-btn flex-1 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold py-2.5 rounded-lg transition shadow-sm flex justify-center items-center gap-2" data-url="${data.pdfUrl}" data-title="${data.title}">
-                <span>📖</span> Buka
-              </button>
-              <button class="share-btn bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2.5 rounded-lg text-sm transition shadow-sm" data-url="${data.pdfUrl}" title="Salin Pautan Awam">
-                🔗
-              </button>
-            </div>
-          `;
-          booksGrid.appendChild(card);
+            </div>`;
         });
 
-        document.querySelectorAll('.view-btn').forEach(btn => btn.addEventListener('click', (e) => {
-            const target = e.currentTarget;
-            openViewer(target.dataset.url, target.dataset.title);
-        }));
-        
-        document.querySelectorAll('.share-btn').forEach(btn => btn.addEventListener('click', (e) => {
-            const url = e.currentTarget.dataset.url;
-            navigator.clipboard.writeText(url).then(() => {
-                alert("Pautan muat turun PDF (URL Awam) telah disalin!");
-            });
-        }));
-
-      } catch (error) {
-        console.error("Ralat muat buku:", error);
-        booksGrid.innerHTML = `<div class="col-span-full p-4 bg-red-50 text-red-700 rounded-lg">Gagal membaca dari pangkalan data. Sila semak Firestore Security Rules anda.<br> Mesej ralat: ${error.message}</div>`;
-      }
+        document.querySelectorAll('.view-btn').forEach(b => b.addEventListener('click', e => { history.pushState(null,'',window.location.pathname); openViewer(e.target.dataset.url, e.target.dataset.title); }));
+        document.querySelectorAll('.share-btn').forEach(b => b.addEventListener('click', e => openShareModal(e.target.dataset.surl, e.target.dataset.t)));
+      } catch (e) { grid.innerHTML = `<div class="col-span-full text-red-500">Ralat: ${e.message}</div>`; }
     }
 
-    // Sistem Pemapar Enjin PDF.js + StPageFlip
-    const dashboardSection = document.getElementById('dashboard-section');
-    const viewerSection = document.getElementById('viewer-section');
-    const viewerTitle = document.getElementById('viewer-title');
-    const flipbookContainer = document.getElementById('flipbook');
-    const pageCounter = document.getElementById('page-counter');
-    const loadingIndicator = document.getElementById('loading-indicator');
-    const loadingText = document.getElementById('loading-text');
-
-    document.getElementById('close-viewer-btn').addEventListener('click', () => {
-      viewerSection.classList.add('hidden');
-      dashboardSection.classList.remove('hidden');
-      if(currentUser) uploadSection.classList.remove('hidden');
-      
-      if (pageFlipInstance) {
-          pageFlipInstance.destroy();
-          pageFlipInstance = null;
-      }
-      
-      // Bersihkan kanvas untuk jimat memori
-      const oldCanvases = flipbookContainer.querySelectorAll('canvas');
-      oldCanvases.forEach(c => {
-          c.width = 0;
-          c.height = 0;
-      });
-      
-      // Set semula HTML asal dengan loading indicator
-      flipbookContainer.innerHTML = `
-        <div id="loading-indicator" class="absolute inset-0 flex flex-col items-center justify-center bg-gray-50 bg-opacity-90 z-10 rounded-lg">
-           <svg class="animate-spin h-10 w-10 text-indigo-600 mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-           <span id="loading-text" class="text-indigo-800 font-medium">Memuat turun...</span>
-        </div>`;
+    function openShareModal(url, title) {
+        if(document.getElementById('share-link-input')) document.getElementById('share-link-input').value = url;
+        if(document.getElementById('share-book-title')) document.getElementById('share-book-title').textContent = title;
+        if(document.getElementById('share-embed-input')) document.getElementById('share-embed-input').value = `<iframe src="${url}" width="100%" height="600" frameborder="0" allowfullscreen></iframe>`;
+        
+        const qrContainer = document.getElementById('qrcode-container');
+        if(qrContainer) {
+            qrContainer.innerHTML = '';
+            new QRCode(qrContainer, { text: url, width: 128, height: 128, colorDark : "#4f46e5" });
+        }
+        if(shareModal) shareModal.classList.remove('hidden');
+    }
+    
+    if(document.getElementById('close-share-modal')) document.getElementById('close-share-modal').addEventListener('click', () => shareModal.classList.add('hidden'));
+    if(document.getElementById('copy-link-btn')) document.getElementById('copy-link-btn').addEventListener('click', () => { 
+        document.getElementById('share-link-input').select(); 
+        document.execCommand('copy'); 
     });
 
+    const viewerSection = document.getElementById('viewer-section');
+    const flipContainer = document.getElementById('flipbook');
+    const prevBtn = document.getElementById('prev-page');
+    const nextBtn = document.getElementById('next-page');
+
+    if(document.getElementById('close-viewer-btn')) {
+        document.getElementById('close-viewer-btn').addEventListener('click', () => {
+          if(viewerSection) viewerSection.classList.add('hidden');
+          if(mainNav) mainNav.classList.remove('hidden');
+          if(mainContent) mainContent.classList.remove('hidden');
+          
+          if (pageFlipInstance) { pageFlipInstance.destroy(); pageFlipInstance = null; }
+          if(flipContainer) {
+              const oldPages = flipContainer.querySelectorAll('.page');
+              oldPages.forEach(p => p.remove());
+          }
+          if(prevBtn) prevBtn.classList.add('hidden'); 
+          if(nextBtn) nextBtn.classList.add('hidden');
+          if(document.getElementById('loading-indicator')) document.getElementById('loading-indicator').style.display = 'flex';
+          
+          if(directBookUrl) window.location.href = window.location.pathname; 
+        });
+    }
+
     async function openViewer(pdfUrl, title) {
-      dashboardSection.classList.add('hidden');
-      uploadSection.classList.add('hidden');
-      viewerSection.classList.remove('hidden');
-      viewerTitle.textContent = title;
+      if(mainNav) mainNav.classList.add('hidden');
+      if(mainContent) mainContent.classList.add('hidden');
+      if(viewerSection) viewerSection.classList.remove('hidden');
+      if(document.getElementById('viewer-title')) document.getElementById('viewer-title').textContent = title;
       
-      // Paparkan butang chat terapung apabila viewer dibuka
-      floatAiBtn.classList.remove('hidden');
+      const loading = document.getElementById('loading-indicator');
+      const loadText = document.getElementById('loading-text');
+      if(loading) loading.style.display = 'flex';
       
-      // Ambil rujukan baru selepas innerHTML direset pada fungsi close
-      const currentLoadingIndicator = document.getElementById('loading-indicator');
-      const currentLoadingText = document.getElementById('loading-text');
-      
-      if(currentLoadingIndicator) currentLoadingIndicator.style.display = 'flex';
-      if(currentLoadingText) currentLoadingText.textContent = 'Menyambung ke PDF.js Engine...';
-      pageCounter.textContent = 'Menyediakan...';
-
       try {
-        // Konfigurasi PDF.js Worker
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+        if(loadText) loadText.textContent = 'Memuat turun PDF (bergantung pada saiz/internet)...';
         
-        if(currentLoadingText) currentLoadingText.textContent = 'Memuat turun data PDF (Bergantung pada kelajuan internet)...';
-        
-        // PENTING: Untuk isu CORS, jika bucket Firebase tidak dikonfigurasi dengan betul, 
-        // muat turun getDocument akan gagal di sini dengan ralat Rangkaian.
-        const loadingTask = pdfjsLib.getDocument(pdfUrl);
-        
-        // Pantau progres muat turun PDF (pilihan)
-        loadingTask.onProgress = function(progressData) {
-            if (progressData.total > 0 && currentLoadingText) {
-                const percent = Math.round((progressData.loaded / progressData.total) * 100);
-                currentLoadingText.textContent = `Memuat turun PDF: ${percent}%`;
-            }
-        };
-
-        const pdf = await loadingTask.promise;
+        const pdf = await pdfjsLib.getDocument(pdfUrl).promise;
         const totalPages = pdf.numPages;
+        
+        if(loadText) loadText.textContent = 'Memproses halaman...';
+        
+        const firstPage = await pdf.getPage(1);
+        const vp = firstPage.getViewport({ scale: 1 });
+        
+        let baseW = vp.width;
+        let baseH = vp.height;
+        
+        const ratio = baseH / baseW;
+        if(baseW > 600) { baseW = 600; baseH = 600 * ratio; }
 
-        if(currentLoadingText) currentLoadingText.textContent = `Memproses paparan (Rendering) ${totalPages} halaman...`;
-
-        // Buang elemen loading
-        if(currentLoadingIndicator) currentLoadingIndicator.remove();
-
-        // 1. Cipta elemen HTML untuk halaman-halaman
         const pagesData = [];
-        for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
-          const pageDiv = document.createElement('div');
-          pageDiv.className = 'page';
-          
-          const canvas = document.createElement('canvas');
-          pageDiv.appendChild(canvas);
-          flipbookContainer.appendChild(pageDiv);
-          pagesData.push({ pageNum, canvas, pageDiv });
+        if(flipContainer) {
+            for (let i = 1; i <= totalPages; i++) {
+              const pDiv = document.createElement('div');
+              pDiv.className = 'page';
+              const canvas = document.createElement('canvas');
+              pDiv.appendChild(canvas);
+              flipContainer.insertBefore(pDiv, prevBtn); 
+              pagesData.push({ num: i, canvas: canvas });
+            }
+
+            pageFlipInstance = new St.PageFlip(flipContainer, {
+              width: baseW, 
+              height: baseH, 
+              size: "stretch", 
+              minWidth: 250, maxWidth: 800, minHeight: 350, maxHeight: 1200,
+              showCover: true, 
+              mobileScrollSupport: false,
+              maxShadowOpacity: 0.3,
+              drawShadow: true,
+              flippingTime: 600
+            });
+
+            pageFlipInstance.loadFromHTML(document.querySelectorAll('.page'));
+
+            for (const item of pagesData) {
+              const p = await pdf.getPage(item.num);
+              const viewport = p.getViewport({ scale: 2.0 }); 
+              const ctx = item.canvas.getContext('2d', {alpha: false}); 
+              item.canvas.height = viewport.height;
+              item.canvas.width = viewport.width;
+              await p.render({ canvasContext: ctx, viewport: viewport }).promise;
+            }
         }
 
-        // 2. Inisialisasi StPageFlip (Objek Selakan 3D)
-        // Set saiz berdasarkan ratio standard A4 (misalnya: 420x594)
-        pageFlipInstance = new St.PageFlip(flipbookContainer, {
-          width: 420,
-          height: 594,
-          size: "stretch", // menyesuaikan dengan saiz kontena
-          minWidth: 315,
-          maxWidth: 1000,
-          minHeight: 420,
-          maxHeight: 1350,
-          showCover: true, // Halaman pertama jadi cover depan
-          mobileScrollSupport: false,
-          maxShadowOpacity: 0.5, // Bayang-bayang selakan
-        });
-
-        // Masukkan elemen HTML ke dalam pageFlip
-        pageFlipInstance.loadFromHTML(document.querySelectorAll('.page'));
-
-        // 3. Render Kanvas PDF secara Asynchronous
-        // Untuk tidak menghalang UI, kita render secara berurutan
-        for (const item of pagesData) {
-          const page = await pdf.getPage(item.pageNum);
-          // Guna skala lebih besar sedikit supaya jelas dan tidak kabur
-          const viewport = page.getViewport({ scale: 1.5 }); 
-          
-          const context = item.canvas.getContext('2d', { alpha: false }); // alpha false lbih efisien
-          item.canvas.height = viewport.height;
-          item.canvas.width = viewport.width;
-
-          await page.render({ 
-              canvasContext: context, 
-              viewport: viewport 
-          }).promise;
-          
-          // Update status sementara rendering jika mahu
+        if(loading) loading.style.display = 'none';
+        if(prevBtn) prevBtn.classList.remove('hidden'); 
+        if(nextBtn) nextBtn.classList.remove('hidden');
+        
+        const pCounter = document.getElementById('page-counter');
+        if(pCounter) pCounter.textContent = `1 / ${totalPages}`;
+        
+        if(pageFlipInstance && pCounter) {
+            pageFlipInstance.on('flip', (e) => pCounter.textContent = `${e.data + 1} / ${totalPages}`);
+            if(prevBtn) prevBtn.onclick = () => pageFlipInstance.flipPrev();
+            if(nextBtn) nextBtn.onclick = () => pageFlipInstance.flipNext();
         }
 
-        // 4. Kawalan dan Status
-        pageCounter.textContent = `Muka 1 / ${totalPages}`;
-        
-        pageFlipInstance.on('flip', (e) => {
-          // e.data adalah index array bermula dari 0
-          pageCounter.textContent = `Muka ${e.data + 1} / ${totalPages}`;
-        });
-
-        document.getElementById('prev-page').onclick = () => pageFlipInstance.flipPrev();
-        document.getElementById('next-page').onclick = () => pageFlipInstance.flipNext();
-
-      } catch (error) {
-        console.error("Ralat Pemapar PDF:", error);
-        
-        let errorMsg = "Gagal memaparkan fail PDF.";
-        if(error.name === 'UnknownErrorException' || error.message.includes('CORS') || error.message.includes('Failed to fetch')) {
-            errorMsg = `<strong>Ralat CORS / Rangkaian Dikesan.</strong> <br><br>Pelayar menghalang skrip daripada membaca fail PDF dari Firebase Storage atas faktor keselamatan.<br><br>Penyelesaian: Anda perlu mengkonfigurasi tetapan CORS pada bucket Firebase Storage anda menggunakan alat arahan (CLI) gsutil atau Google Cloud Shell.`;
-        } else {
-             errorMsg += `<br><br>Butiran: ${error.message}`;
-        }
-        
-        flipbookContainer.innerHTML = `<div class="p-8 text-center bg-red-50 text-red-700 w-full rounded-lg max-w-lg shadow-sm border border-red-200">
-            <svg class="w-12 h-12 mx-auto text-red-500 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
-            <p>${errorMsg}</p>
-        </div>`;
+      } catch (err) {
+        if(loadText) loadText.innerHTML = `<span class="text-red-600 font-bold">Ralat: ${err.message}</span><br><br><button onclick="document.getElementById('close-viewer-btn').click()" class="mt-4 bg-gray-200 px-4 py-2 rounded text-sm text-gray-800">Kembali</button>`;
+        const spinner = document.querySelector('.animate-spin');
+        if(spinner) spinner.style.display = 'none';
       }
     }
+
+    window.addEventListener('DOMContentLoaded', () => {
+        if (directBookUrl) openViewer(decodeURIComponent(directBookUrl), decodeURIComponent(directBookTitle));
+    });
   </script>
 </body>
 </html>
