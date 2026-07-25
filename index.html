@@ -10,6 +10,15 @@
   <script src="https://cdn.jsdelivr.net/npm/page-flip/dist/js/page-flip.browser.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 
+  <!-- Document conversion libraries -->
+  <script type="module">
+    import { PptxRenderer } from 'https://cdn.jsdelivr.net/npm/pptx-browser@4.1.5/+esm';
+    window.PptxRenderer = PptxRenderer;
+  </script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 
   <style>
@@ -299,6 +308,21 @@
       border: 1px solid var(--primary-border);
       color: var(--primary);
     }
+    .badge-pdf {
+      background: var(--primary-light);
+      border: 1px solid var(--primary-border);
+      color: var(--primary);
+    }
+    .badge-ppt {
+      background: #fef3c7;
+      border: 1px solid #fcd34d;
+      color: #b45309;
+    }
+    .badge-doc {
+      background: #dbeafe;
+      border: 1px solid #93c5fd;
+      color: #1d4ed8;
+    }
     .badge-folder {
       background: var(--folder-light);
       border: 1px solid var(--folder-border);
@@ -495,19 +519,20 @@
     <!-- Upload Section -->
     <section id="upload-section" class="hidden p-6 mb-6">
       <h2 class="section-title mb-4 flex items-center gap-2">
-        <span>📤</span> Muat Naik PDF Baru
+        <span>📤</span> Muat Naik Fail Baru
       </h2>
+      <p class="text-xs text-slate-500 mb-3">Format disokong: PDF, PPT, PPTX, DOC, DOCX</p>
       <form id="upload-form" class="flex flex-col md:flex-row gap-3 items-stretch md:items-center">
         <input type="text" id="book-title" placeholder="Tajuk Buku Selak (cth: Nota Sejarah)" required
                class="input-field w-full md:w-1/2 p-3 rounded-lg">
-        <input type="file" id="pdf-file" accept="application/pdf" required
+        <input type="file" id="pdf-file" accept=".pdf,.ppt,.pptx,.doc,.docx,application/pdf,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" required
                class="input-field w-full md:w-1/3 p-2.5 rounded-lg text-sm cursor-pointer file:mr-3 file:py-1 file:px-3 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-600 hover:file:bg-indigo-100">
         <button type="submit" id="submit-btn"
                 class="btn-primary w-full md:w-auto px-6 py-3 rounded-lg text-sm font-semibold">
           Muat Naik
         </button>
       </form>
-      <div id="upload-progress" class="hidden mt-4">Memproses dan memuat naik PDF...</div>
+      <div id="upload-progress" class="hidden mt-4"></div>
     </section>
 
     <!-- Dashboard Section -->
@@ -909,7 +934,139 @@
       });
     });
 
-    // ─── Upload File ───
+    // ─── Upload File (supports PDF, PPTX, DOCX) ───
+
+    // Convert PPTX to PDF: render each slide to canvas, then build PDF
+    async function convertPptxToPdf(file, prog) {
+      prog.textContent = "Membaca fail PPTX...";
+      const arrayBuffer = await file.arrayBuffer();
+
+      prog.textContent = "Memproses slaid PPTX...";
+      const renderer = new window.PptxRenderer();
+      await renderer.load(arrayBuffer);
+      const slideCount = renderer.slideCount;
+      prog.textContent = `PPTX dijumpai: ${slideCount} slaid. Menukar...`;
+
+      const { jsPDF } = window.jspdf;
+      const pdf = new jsPDF({ unit: 'px', format: [1280, 720] });
+
+      for (let i = 0; i < slideCount; i++) {
+        if (i > 0) pdf.addPage([1280, 720]);
+        prog.textContent = `Memproses slaid ${i + 1} / ${slideCount}...`;
+
+        const canvas = document.createElement('canvas');
+        canvas.width = 1280;
+        canvas.height = 720;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, 1280, 720);
+
+        try {
+          await renderer.renderSlide(i, canvas, 1280);
+        } catch (renderErr) {
+          console.warn(`Slaid ${i + 1} gagal diproses:`, renderErr);
+          ctx.fillStyle = '#333';
+          ctx.font = '48px sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText(`Slaid ${i + 1}`, 640, 360);
+        }
+
+        const imgData = canvas.toDataURL('image/jpeg', 0.85);
+        pdf.addImage(imgData, 'JPEG', 0, 0, 1280, 720);
+      }
+
+      renderer.destroy();
+      return pdf.output('blob');
+    }
+
+    // Convert DOCX to PDF: mammoth.js -> HTML -> html2canvas -> jsPDF
+    async function convertDocxToPdf(file, prog) {
+      prog.textContent = "Menukar DOCX kepada HTML...";
+      const arrayBuffer = await file.arrayBuffer();
+      const result = await mammoth.convertToHtml({ arrayBuffer });
+      const html = result.value;
+
+      if (!html || html.trim().length < 10) {
+        throw new Error("Dokumen DOCX tidak mempunyai kandungan yang boleh diproses.");
+      }
+
+      // Create a hidden off-screen container for rendering
+      prog.textContent = "Menyediakan dokumen...";
+      const container = document.createElement('div');
+      container.style.cssText = 'position:fixed;left:-9999px;top:0;width:816px;background:#fff;padding:48px;font-family:Arial,sans-serif;font-size:11pt;line-height:1.6;color:#000;';
+      container.innerHTML = html;
+      document.body.appendChild(container);
+
+      // Render images in the HTML
+      const images = container.querySelectorAll('img');
+      for (const img of images) {
+        if (img.src && img.src.startsWith('data:')) continue;
+      }
+
+      const { jsPDF } = window.jspdf;
+      const pdf = new jsPDF({ unit: 'px', format: [816, 1056] });
+
+      // Split content into pages worth of chunks
+      const childElements = Array.from(container.children);
+      let currentPage = 0;
+      let pageHeight = 0;
+      const pageLimit = 960; // ~90% of 1056px page height
+
+      prog.textContent = "Memproses halaman dokumen...";
+
+      // Render the entire content as one tall canvas first, then split
+      // Better approach: render in chunks
+      const tempDiv = document.createElement('div');
+      tempDiv.style.cssText = 'position:fixed;left:-9999px;top:0;width:816px;background:#fff;padding:48px;font-family:Arial,sans-serif;font-size:11pt;line-height:1.6;color:#000;';
+      document.body.appendChild(tempDiv);
+
+      let chunk = document.createElement('div');
+      let chunkHeight = 0;
+
+      for (let i = 0; i < childElements.length; i++) {
+        const el = childElements[i];
+        tempDiv.appendChild(el.cloneNode(true));
+        const newHeight = tempDiv.offsetHeight;
+
+        if (newHeight > pageLimit && chunkHeight > 0) {
+          // Render current chunk to canvas
+          const canvas = await html2canvas(tempDiv, {
+            scale: 2,
+            useCORS: true,
+            backgroundColor: '#ffffff',
+            logging: false
+          });
+          const imgData = canvas.toDataURL('image/png');
+          if (currentPage > 0) pdf.addPage([816, 1056]);
+          pdf.addImage(imgData, 'PNG', 0, 0, 816, (canvas.height * 816) / canvas.width);
+          currentPage++;
+
+          // Start new chunk with this element
+          tempDiv.innerHTML = '';
+          tempDiv.appendChild(el.cloneNode(true));
+          chunkHeight = tempDiv.offsetHeight;
+        }
+      }
+
+      // Render remaining content
+      if (tempDiv.children.length > 0) {
+        const canvas = await html2canvas(tempDiv, {
+          scale: 2,
+          useCORS: true,
+          backgroundColor: '#ffffff',
+          logging: false
+        });
+        const imgData = canvas.toDataURL('image/png');
+        if (currentPage > 0) pdf.addPage([816, 1056]);
+        pdf.addImage(imgData, 'PNG', 0, 0, 816, (canvas.height * 816) / canvas.width);
+      }
+
+      document.body.removeChild(container);
+      document.body.removeChild(tempDiv);
+
+      return pdf.output('blob');
+    }
+
     document.getElementById('upload-form').addEventListener('submit', async (e) => {
       e.preventDefault();
       if (!currentUser) return;
@@ -919,12 +1076,29 @@
 
       const btn = document.getElementById('submit-btn');
       const prog = document.getElementById('upload-progress');
-      btn.disabled = true; prog.classList.remove('hidden'); prog.textContent = "Memuat naik...";
+      btn.disabled = true; prog.classList.remove('hidden');
 
       try {
+        const ext = file.name.split('.').pop().toLowerCase();
+        let pdfBlob;
+
+        if (ext === 'pdf') {
+          // Direct PDF upload
+          pdfBlob = file;
+          prog.textContent = "Memuat naik PDF...";
+        } else if (ext === 'ppt' || ext === 'pptx') {
+          prog.textContent = "Menukar PPTX kepada PDF...";
+          pdfBlob = await convertPptxToPdf(file, prog);
+        } else if (ext === 'doc' || ext === 'docx') {
+          prog.textContent = "Menukar DOCX kepada PDF...";
+          pdfBlob = await convertDocxToPdf(file, prog);
+        } else {
+          throw new Error("Format fail tidak disokong. Gunakan PDF, PPT, PPTX, DOC, atau DOCX.");
+        }
+
         const storagePath = `pdfs/${currentUser.uid}/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9.]/g, '')}`;
         const storageRef = ref(storage, storagePath);
-        const task = uploadBytesResumable(storageRef, file);
+        const task = uploadBytesResumable(storageRef, pdfBlob);
 
         task.on('state_changed',
           (snap) => { prog.textContent = `Memuat naik... ${Math.round((snap.bytesTransferred / snap.totalBytes) * 100)}%`; },
@@ -934,6 +1108,7 @@
             const url = await getDownloadURL(task.snapshot.ref);
             await addDoc(collection(db, "flipbooks"), {
               title, pdfUrl: url, storagePath,
+              originalFormat: ext, // Store original format for badge display
               authorName: currentUser.displayName, userId: currentUser.uid,
               folderId: currentFolderId, createdAt: serverTimestamp()
             });
@@ -941,7 +1116,7 @@
             btn.disabled = false; prog.classList.add('hidden');
           }
         );
-      } catch (e) { customModal.show("Ralat", e.message, "Tutup", "btn-danger", () => {}); btn.disabled = false; }
+      } catch (e) { customModal.show("Ralat", e.message, "Tutup", "btn-danger", () => {}); btn.disabled = false; prog.classList.add('hidden'); }
     });
 
     // ─── Navigate Folder ───
@@ -1065,6 +1240,13 @@
     // ─── Share data map (avoids HTML attribute quoting issues) ───
     const _shareData = new Map();
 
+    function getFormatBadge(ext) {
+      if (!ext || ext === 'pdf') return '<span class="badge badge-pdf">PDF</span>';
+      if (ext === 'ppt' || ext === 'pptx') return '<span class="badge badge-ppt">PPTX</span>';
+      if (ext === 'doc' || ext === 'docx') return '<span class="badge badge-doc">DOCX</span>';
+      return '<span class="badge badge-pdf">' + ext.toUpperCase() + '</span>';
+    }
+
     function renderBookCardGrid(b) {
       const currentUrl = window.location.origin + window.location.pathname;
       const b64 = btoa(b.pdfUrl);
@@ -1075,6 +1257,7 @@
       const escapedTitle = b.title.replace(/'/g, "\\'");
       const escapedPdfUrl = b.pdfUrl.replace(/'/g, "\\'");
       const sp = (b.storagePath || '').replace(/'/g, "\\'");
+      const fmt = (b.originalFormat || 'pdf').toLowerCase();
 
       return `
         <div class="card p-4 flex flex-col justify-between">
@@ -1082,7 +1265,7 @@
             <div class="book-thumb h-24 mb-3 cursor-pointer" onclick="openViewer('${escapedPdfUrl}', '${escapedTitle}')">
               <span class="text-4xl opacity-60">📄</span>
             </div>
-            <span class="badge badge-pdf">PDF</span>
+            ${getFormatBadge(fmt)}
             <h3 class="font-semibold text-sm mt-2 truncate" style="color:var(--text-main);" title="${escapedTitle}">${escapedTitle}</h3>
             <p class="text-xs mt-1 text-slate-400">${formatDate(b.createdAt)}</p>
           </div>
@@ -1126,6 +1309,7 @@
       const escapedTitle = b.title.replace(/'/g, "\\'");
       const escapedPdfUrl = b.pdfUrl.replace(/'/g, "\\'");
       const sp = (b.storagePath || '').replace(/'/g, "\\'");
+      const fmt = (b.originalFormat || 'pdf').toLowerCase();
 
       return `
         <div class="list-row">
@@ -1134,7 +1318,7 @@
             <div class="font-semibold text-sm" style="color:var(--text-main);">${escapedTitle}</div>
             <div class="text-xs mt-0.5 text-slate-400">${formatDate(b.createdAt)}</div>
           </div>
-          <span class="badge badge-pdf hidden md:inline-flex">PDF</span>
+          ${getFormatBadge(fmt)}
           <div class="flex gap-1 ml-2">
             <button class="btn-primary px-3 py-1.5 rounded-lg text-xs font-semibold" onclick="openViewer('${escapedPdfUrl}', '${escapedTitle}')">▶</button>
             <button class="btn-ghost px-2 py-1.5 rounded-lg text-xs font-medium" onclick="shareBookById('${b.id}')">🔗</button>
