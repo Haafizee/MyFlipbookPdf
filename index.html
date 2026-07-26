@@ -936,53 +936,220 @@
 
     // ─── Upload File (supports PDF, PPTX, DOCX) ───
 
-    // Convert PPTX to PDF: render each slide to canvas, then build PDF
+    // ═══════════════════════════════════════════════════════
+    // PPTX Conversion — preserves original slide dimensions
+    // ═══════════════════════════════════════════════════════
+
+    // Extract original slide dimensions from PPTX ZIP (EMU units → pixels)
+    // PPTX is a ZIP file. We parse presentation.xml for slide size.
+    async function extractPptxDimensions(arrayBuffer) {
+      try {
+        // PptxRenderer stores internal data; we'll detect size by rendering
+        // the first slide at a high width and checking the renderer's slideW/slideH
+        // For pptx-browser v4, the renderer exposes slideWidth and slideHeight in EMU
+        const renderer = new window.PptxRenderer();
+        await renderer.load(arrayBuffer);
+        // Render first slide at 1280px to detect actual aspect ratio
+        const testCanvas = document.createElement('canvas');
+        testCanvas.width = 1280;
+        await renderer.renderSlide(0, testCanvas, 1280);
+        // After rendering, canvas height reflects the actual slide aspect ratio
+        const actualHeight = testCanvas.height;
+        renderer.destroy();
+        return { width: 1280, height: actualHeight };
+      } catch (e) {
+        console.warn('Failed to detect PPTX dimensions, defaulting to 1280×720', e);
+        return { width: 1280, height: 720 };
+      }
+    }
+
     async function convertPptxToPdf(file, prog) {
       prog.textContent = "Membaca fail PPTX...";
       const arrayBuffer = await file.arrayBuffer();
 
-      prog.textContent = "Memproses slaid PPTX...";
-      const renderer = new window.PptxRenderer();
-      await renderer.load(arrayBuffer);
-      const slideCount = renderer.slideCount;
-      prog.textContent = `PPTX dijumpai: ${slideCount} slaid. Menukar...`;
+      // Create a temporary renderer to detect slide dimensions
+      const testRenderer = new window.PptxRenderer();
+      await testRenderer.load(arrayBuffer);
+      const slideCount = testRenderer.slideCount;
+
+      // Detect actual slide size by rendering first slide
+      const testCanvas = document.createElement('canvas');
+      testCanvas.width = 1280;
+      await testRenderer.renderSlide(0, testCanvas, 1280);
+      const slideHeight = testCanvas.height; // reflects actual aspect ratio
+      const slideWidth = 1280;
+      const aspectRatio = slideWidth / slideHeight;
+
+      // Log detected dimensions for debugging
+      console.log(`PPTX: ${slideCount} slaid, ${slideWidth}×${slideHeight}px (ratio ${aspectRatio.toFixed(3)})`);
+
+      testRenderer.destroy();
+      prog.textContent = `PPTX dijumpai: ${slideCount} slaid, saiz ${slideWidth}×${slideHeight}px. Menukar...`;
 
       const { jsPDF } = window.jspdf;
-      const pdf = new jsPDF({ unit: 'px', format: [1280, 720] });
+      const pdf = new jsPDF({ unit: 'px', format: [slideWidth, slideHeight] });
+
+      // Create the real renderer for actual conversion
+      const renderer = new window.PptxRenderer();
+      await renderer.load(arrayBuffer);
 
       for (let i = 0; i < slideCount; i++) {
-        if (i > 0) pdf.addPage([1280, 720]);
+        if (i > 0) pdf.addPage([slideWidth, slideHeight]);
         prog.textContent = `Memproses slaid ${i + 1} / ${slideCount}...`;
 
         const canvas = document.createElement('canvas');
-        canvas.width = 1280;
-        canvas.height = 720;
+        canvas.width = slideWidth;
+        canvas.height = slideHeight;
         const ctx = canvas.getContext('2d');
         ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0, 0, 1280, 720);
+        ctx.fillRect(0, 0, slideWidth, slideHeight);
 
         try {
-          await renderer.renderSlide(i, canvas, 1280);
+          // Render at the exact slide width — renderer auto-adjusts height
+          await renderer.renderSlide(i, canvas, slideWidth);
         } catch (renderErr) {
           console.warn(`Slaid ${i + 1} gagal diproses:`, renderErr);
           ctx.fillStyle = '#333';
-          ctx.font = '48px sans-serif';
+          ctx.font = `${Math.round(slideWidth * 0.05)}px sans-serif`;
           ctx.textAlign = 'center';
-          ctx.fillText(`Slaid ${i + 1}`, 640, 360);
+          ctx.fillText(`Slaid ${i + 1}`, slideWidth / 2, slideHeight / 2);
         }
 
-        const imgData = canvas.toDataURL('image/jpeg', 0.85);
-        pdf.addImage(imgData, 'JPEG', 0, 0, 1280, 720);
+        const imgData = canvas.toDataURL('image/jpeg', 0.92);
+        pdf.addImage(imgData, 'JPEG', 0, 0, slideWidth, slideHeight);
       }
 
       renderer.destroy();
       return pdf.output('blob');
     }
 
-    // Convert DOCX to PDF: mammoth.js -> HTML -> html2canvas -> jsPDF
+    // ═══════════════════════════════════════════════════════
+    // DOCX Conversion — preserves page size, margins, layout
+    // ═══════════════════════════════════════════════════════
+
+    // Parse DOCX ZIP to extract page settings from settings.xml
+    async function extractDocxPageSettings(arrayBuffer) {
+      try {
+        // DOCX is a ZIP file. We'll use DecompressionStream to unzip
+        // and parse word/settings.xml for page size and margins.
+        const uint8 = new Uint8Array(arrayBuffer);
+
+        // Find the ZIP local file header for word/settings.xml
+        const decoder = new TextDecoder();
+        const text = decoder.decode(uint8.slice(0, Math.min(uint8.length, 500000)));
+
+        let settingsXml = '';
+        let i = 0;
+        while (i < uint8.length - 4) {
+          // ZIP local file header signature: PK\x03\x04
+          if (uint8[i] === 0x50 && uint8[i+1] === 0x4B && uint8[i+2] === 0x03 && uint8[i+3] === 0x04) {
+            const fnameLen = uint8[i+26] | (uint8[i+27] << 8);
+            const extraLen = uint8[i+28] | (uint8[i+29] << 8);
+            const compressedSize = uint8[i+18] | (uint8[i+19] << 8) | (uint8[i+20] << 16) | (uint8[i+21] << 24);
+            const fnameStart = i + 30;
+            const fname = decoder.decode(uint8.slice(fnameStart, fnameStart + fnameLen));
+            if (fname === 'word/settings.xml') {
+              const dataStart = fnameStart + fnameLen + extraLen;
+              // Use DecompressionStream for deflated data
+              try {
+                const ds = new DecompressionStream('deflate-raw');
+                const stream = new Blob([uint8.slice(dataStart, dataStart + compressedSize)])
+                  .stream().pipeThrough(ds);
+                const result = await new Response(stream).arrayBuffer();
+                settingsXml = new TextDecoder().decode(result);
+              } catch (e) {
+                // If deflate-raw fails, try raw inflate
+                console.warn('Could not decompress settings.xml, using fallback page size');
+              }
+              break;
+            }
+          }
+          i++;
+        }
+
+        if (!settingsXml) {
+          return getDefaultPageSettings();
+        }
+
+        // Parse page size (w:pgSz) — dimensions in twips (1 twip = 1/1440 inch)
+        const pgSzMatch = settingsXml.match(/<w:pgSz[^>]*w:w="(\d+)"[^>]*w:h="(\d+)"/);
+        // Or reversed attribute order
+        const pgSzMatch2 = settingsXml.match(/<w:pgSz[^>]*w:h="(\d+)"[^>]*w:w="(\d+)"/);
+
+        // Parse margins (w:pgMar) — in twips
+        const pgMarMatch = settingsXml.match(/<w:pgMar[^>]*w:top="(\d+)"[^>]*w:right="(\d+)"[^>]*w:bottom="(\d+)"[^>]*w:left="(\d+)"/);
+
+        const settings = getDefaultPageSettings();
+
+        if (pgSzMatch) {
+          const widthTwips = parseInt(pgSzMatch[1]);
+          const heightTwips = parseInt(pgSzMatch[2]);
+          settings.widthTwips = widthTwips;
+          settings.heightTwips = heightTwips;
+        } else if (pgSzMatch2) {
+          const heightTwips = parseInt(pgSzMatch2[1]);
+          const widthTwips = parseInt(pgSzMatch2[2]);
+          settings.widthTwips = widthTwips;
+          settings.heightTwips = heightTwips;
+        }
+
+        // Also check for orient="landscape"
+        if (settingsXml.includes('w:orient="landscape"')) {
+          const tmp = settings.widthTwips;
+          settings.widthTwips = settings.heightTwips;
+          settings.heightTwips = tmp;
+        }
+
+        if (pgMarMatch) {
+          settings.topTwips = parseInt(pgMarMatch[1]);
+          settings.rightTwips = parseInt(pgMarMatch[2]);
+          settings.bottomTwips = parseInt(pgMarMatch[3]);
+          settings.leftTwips = parseInt(pgMarMatch[4]);
+        }
+
+        return settings;
+      } catch (e) {
+        console.warn('Failed to extract DOCX page settings:', e);
+        return getDefaultPageSettings();
+      }
+    }
+
+    function getDefaultPageSettings() {
+      // Default: US Letter size, 1-inch margins
+      return {
+        widthTwips: 12240,   // 8.5 inches × 1440
+        heightTwips: 15840,  // 11 inches × 1440
+        topTwips: 1440,      // 1 inch
+        rightTwips: 1440,    // 1 inch
+        bottomTwips: 1440,   // 1 inch
+        leftTwips: 1440      // 1 inch
+      };
+    }
+
+    // Convert twips to pixels (at 96 DPI, 1 inch = 96px, 1 twip = 96/1440 = 1/15 px)
+    function twipsToPx(twips) {
+      return Math.round(twips * 96 / 1440);
+    }
+
     async function convertDocxToPdf(file, prog) {
-      prog.textContent = "Menukar DOCX kepada HTML...";
+      prog.textContent = "Membaca tetapan halaman DOCX...";
       const arrayBuffer = await file.arrayBuffer();
+
+      // Extract original page dimensions and margins
+      const pageSettings = await extractDocxPageSettings(arrayBuffer);
+      const pageWidthPx = twipsToPx(pageSettings.widthTwips);
+      const pageHeightPx = twipsToPx(pageSettings.heightTwips);
+      const marginTopPx = twipsToPx(pageSettings.topTwips);
+      const marginRightPx = twipsToPx(pageSettings.rightTwips);
+      const marginBottomPx = twipsToPx(pageSettings.bottomTwips);
+      const marginLeftPx = twipsToPx(pageSettings.leftTwips);
+
+      const contentWidthPx = pageWidthPx - marginLeftPx - marginRightPx;
+      const contentHeightPx = pageHeightPx - marginTopPx - marginBottomPx;
+
+      console.log(`DOCX: ${pageWidthPx}×${pageHeightPx}px, margins T:${marginTopPx} R:${marginRightPx} B:${marginBottomPx} L:${marginLeftPx}`);
+
+      prog.textContent = "Menukar DOCX kepada HTML...";
       const result = await mammoth.convertToHtml({ arrayBuffer });
       const html = result.value;
 
@@ -990,80 +1157,85 @@
         throw new Error("Dokumen DOCX tidak mempunyai kandungan yang boleh diproses.");
       }
 
-      // Create a hidden off-screen container for rendering
       prog.textContent = "Menyediakan dokumen...";
-      const container = document.createElement('div');
-      container.style.cssText = 'position:fixed;left:-9999px;top:0;width:816px;background:#fff;padding:48px;font-family:Arial,sans-serif;font-size:11pt;line-height:1.6;color:#000;';
-      container.innerHTML = html;
-      document.body.appendChild(container);
 
-      // Render images in the HTML
-      const images = container.querySelectorAll('img');
-      for (const img of images) {
-        if (img.src && img.src.startsWith('data:')) continue;
-      }
+      // Create the page template (represents one A4/Letter page with exact margins)
+      const pageTemplate = `width:${contentWidthPx}px; padding:${marginTopPx}px ${marginRightPx}px ${marginBottomPx}px ${marginLeftPx}px; background:#fff; font-family:'Times New Roman',Georgia,serif; font-size:12pt; line-height:1.5; color:#000; box-sizing:border-box;`;
 
       const { jsPDF } = window.jspdf;
-      const pdf = new jsPDF({ unit: 'px', format: [816, 1056] });
-
-      // Split content into pages worth of chunks
-      const childElements = Array.from(container.children);
-      let currentPage = 0;
-      let pageHeight = 0;
-      const pageLimit = 960; // ~90% of 1056px page height
+      const pdf = new jsPDF({ unit: 'px', format: [pageWidthPx, pageHeightPx] });
 
       prog.textContent = "Memproses halaman dokumen...";
 
-      // Render the entire content as one tall canvas first, then split
-      // Better approach: render in chunks
-      const tempDiv = document.createElement('div');
-      tempDiv.style.cssText = 'position:fixed;left:-9999px;top:0;width:816px;background:#fff;padding:48px;font-family:Arial,sans-serif;font-size:11pt;line-height:1.6;color:#000;';
-      document.body.appendChild(tempDiv);
+      // Create off-screen page container
+      const pageDiv = document.createElement('div');
+      pageDiv.style.cssText = pageTemplate;
+      document.body.appendChild(pageDiv);
 
-      let chunk = document.createElement('div');
-      let chunkHeight = 0;
+      // Parse HTML into elements and paginate
+      const tempContainer = document.createElement('div');
+      tempContainer.innerHTML = html;
+      const childElements = Array.from(tempContainer.children);
+
+      let currentPage = 0;
+
+      // Use a measurement approach: accumulate elements until contentHeightPx is exceeded
+      // Then render the current batch as a page
+      const currentBatch = [];
 
       for (let i = 0; i < childElements.length; i++) {
         const el = childElements[i];
-        tempDiv.appendChild(el.cloneNode(true));
-        const newHeight = tempDiv.offsetHeight;
 
-        if (newHeight > pageLimit && chunkHeight > 0) {
-          // Render current chunk to canvas
-          const canvas = await html2canvas(tempDiv, {
+        // Add element to batch
+        pageDiv.appendChild(el.cloneNode(true));
+
+        // Check if we've exceeded page height
+        if (pageDiv.offsetHeight > contentHeightPx && currentBatch.length > 0) {
+          // Remove the last element that overflowed
+          pageDiv.removeChild(pageDiv.lastChild);
+          currentBatch.pop();
+
+          // Render the current batch as a page
+          const canvas = await html2canvas(pageDiv, {
             scale: 2,
             useCORS: true,
             backgroundColor: '#ffffff',
-            logging: false
+            logging: false,
+            width: pageWidthPx,
+            height: pageHeightPx
           });
+
           const imgData = canvas.toDataURL('image/png');
-          if (currentPage > 0) pdf.addPage([816, 1056]);
-          pdf.addImage(imgData, 'PNG', 0, 0, 816, (canvas.height * 816) / canvas.width);
+          if (currentPage > 0) pdf.addPage([pageWidthPx, pageHeightPx]);
+          pdf.addImage(imgData, 'PNG', 0, 0, pageWidthPx, pageHeightPx);
           currentPage++;
 
-          // Start new chunk with this element
-          tempDiv.innerHTML = '';
-          tempDiv.appendChild(el.cloneNode(true));
-          chunkHeight = tempDiv.offsetHeight;
+          // Clear page and add the overflowing element
+          pageDiv.innerHTML = '';
+          pageDiv.appendChild(el.cloneNode(true));
+          currentBatch.length = 0;
+          currentBatch.push(el);
+        } else {
+          currentBatch.push(el);
         }
       }
 
       // Render remaining content
-      if (tempDiv.children.length > 0) {
-        const canvas = await html2canvas(tempDiv, {
+      if (pageDiv.children.length > 0) {
+        const canvas = await html2canvas(pageDiv, {
           scale: 2,
           useCORS: true,
           backgroundColor: '#ffffff',
-          logging: false
+          logging: false,
+          width: pageWidthPx,
+          height: pageHeightPx
         });
         const imgData = canvas.toDataURL('image/png');
-        if (currentPage > 0) pdf.addPage([816, 1056]);
-        pdf.addImage(imgData, 'PNG', 0, 0, 816, (canvas.height * 816) / canvas.width);
+        if (currentPage > 0) pdf.addPage([pageWidthPx, pageHeightPx]);
+        pdf.addImage(imgData, 'PNG', 0, 0, pageWidthPx, pageHeightPx);
       }
 
-      document.body.removeChild(container);
-      document.body.removeChild(tempDiv);
-
+      document.body.removeChild(pageDiv);
       return pdf.output('blob');
     }
 
