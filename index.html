@@ -697,8 +697,8 @@
     const db = getFirestore(app);
     const storage = getStorage(app);
     const googleProvider = new GoogleAuthProvider();
-    // CHANGED: Use drive.readonly scope to allow downloading files selected by picker
-    googleProvider.addScope('https://www.googleapis.com/auth/drive.readonly'); 
+    // Gunakan scope drive.file untuk membenarkan pemilih fail dan muat naik sementara untuk penukaran format
+    googleProvider.addScope('https://www.googleapis.com/auth/drive.file'); 
 
     let currentUser = null;
     let pageFlipInstance = null;
@@ -1019,6 +1019,7 @@
         .addView(view)
         .setOAuthToken(window.gDriveToken)
         .setDeveloperKey(firebaseConfig.apiKey)
+        .setAppId(firebaseConfig.messagingSenderId)
         .setCallback(pickerCallback)
         .build();
         
